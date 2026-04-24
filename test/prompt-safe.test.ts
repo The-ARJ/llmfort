@@ -160,6 +160,18 @@ describe('promptSafe — new PII kinds', () => {
     expect(r.violations.some(v => v.label === 'api_key')).toBe(true)
   })
 
+  it('detects Google AIza key of realistic 39-char length', () => {
+    const key = 'AIza' + 'a'.repeat(35) // 39 total
+    expect(promptSafe('key ' + key).violations.some(v => v.label === 'api_key')).toBe(true)
+  })
+
+  it('detects Google AIza key longer than 39 chars (was missed with {35})', () => {
+    // Real-world Google Cloud keys can run 44+ chars; the old {35} exact regex
+    // missed these because the \b after a 35th alnum char never matched.
+    const key = 'AIzaSyD_' + 'a'.repeat(32)  // 40 chars
+    expect(promptSafe('key ' + key).violations.some(v => v.label === 'api_key')).toBe(true)
+  })
+
   it('detects real-shaped JWTs', () => {
     const r = promptSafe('token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0aaaaaaaa.abc_123-xyzabc1234 here')
     expect(r.violations.some(v => v.label === 'jwt')).toBe(true)

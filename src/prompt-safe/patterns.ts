@@ -143,7 +143,7 @@ export const PII_PATTERNS: Pattern[] = [
   {
     type: 'pii',
     label: 'api_key',
-    regex: /\b(sk-ant-[A-Za-z0-9_\-]{20,}|sk-proj-[A-Za-z0-9_\-]{20,}|sk-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9\-_]{35}|AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{36,}|xox[baprs]-[A-Za-z0-9\-]{10,})\b/g,
+    regex: /\b(sk-ant-[A-Za-z0-9_\-]{20,}|sk-proj-[A-Za-z0-9_\-]{20,}|sk-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9\-_]{35,44}|AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{36,}|xox[baprs]-[A-Za-z0-9\-]{10,})\b/g,
   },
   // JWT (header.payload.signature, all base64url).
   // Real JWTs have an encoded JSON header (~20+ chars), a non-trivial payload,
