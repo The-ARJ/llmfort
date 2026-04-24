@@ -1,18 +1,20 @@
-# @the-arj/ai-kit
+# @the-arj/llmfort
 
-> Zero-dependency AI toolkit for Node.js — provider-agnostic tool/function-calling schemas, prompt-injection + PII scanner, and pre-call cost/budget guardrails.
+> Fortify your LLM calls. Zero-dependency Node.js toolkit for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, and pre-call cost/budget guardrails.
 
 Three focused modules, zero runtime dependencies, full TypeScript types, ESM + CJS.
 Built for the 2026 model landscape: **GPT-5**, **Claude 4.7**, **Gemini 3**, **DeepSeek V3.2**, **Llama 4**, **Mistral**, and any OpenAPI-compatible LLM.
 
+`llmfort` sits between your app code and whichever LLM SDK you use. It won't stream, it won't route, it won't call APIs for you — it just fortifies the three surfaces provider SDKs leave exposed: **schema shape**, **prompt safety**, and **spend**.
+
 ```ts
 // Root import (convenient)
-import { toolSchema, promptSafe, costGuard } from '@the-arj/ai-kit'
+import { toolSchema, promptSafe, costGuard } from '@the-arj/llmfort'
 
 // Or import the one module you need (smaller bundle)
-import { toolSchema } from '@the-arj/ai-kit/tool-schema'
-import { promptSafe } from '@the-arj/ai-kit/prompt-safe'
-import { costGuard } from '@the-arj/ai-kit/cost-guard'
+import { toolSchema } from '@the-arj/llmfort/tool-schema'
+import { promptSafe } from '@the-arj/llmfort/prompt-safe'
+import { costGuard } from '@the-arj/llmfort/cost-guard'
 ```
 
 ---
@@ -20,7 +22,7 @@ import { costGuard } from '@the-arj/ai-kit/cost-guard'
 ## Install
 
 ```sh
-npm install @the-arj/ai-kit
+npm install @the-arj/llmfort
 ```
 
 Requires **Node.js ≥ 18**. Works from both ESM and CJS.
@@ -44,7 +46,7 @@ Requires **Node.js ≥ 18**. Works from both ESM and CJS.
 Describe your tool once, get the exact shape each provider expects.
 
 ```ts
-import { toolSchema, toolSchemaAll } from '@the-arj/ai-kit/tool-schema'
+import { toolSchema, toolSchemaAll } from '@the-arj/llmfort/tool-schema'
 
 const schema = toolSchema({
   name: 'get_weather',
@@ -78,7 +80,7 @@ Every output includes `additionalProperties: false` on the generated object sche
 Runs **client-side before any API call**. No network requests, no telemetry. Works with any LLM.
 
 ```ts
-import { promptSafe, PromptViolationError } from '@the-arj/ai-kit/prompt-safe'
+import { promptSafe, PromptViolationError } from '@the-arj/llmfort/prompt-safe'
 
 // Scan and inspect violations
 const result = promptSafe(userInput)
@@ -115,7 +117,7 @@ Notable hardening vs. naive regex scanners:
 ### `cost-guard` — Pre-call cost estimation and budget enforcement
 
 ```ts
-import { costGuard, CostLimitError } from '@the-arj/ai-kit/cost-guard'
+import { costGuard, CostLimitError } from '@the-arj/llmfort/cost-guard'
 
 const guard = costGuard({
   model: 'claude-sonnet-4-6',
@@ -156,7 +158,7 @@ Unknown model names fall back to a conservative flagship estimate (not tied to a
 Each `ModelPrice` also exposes `cachedInput` (per 1M tokens) where the provider offers a discount — use it if you're implementing prompt caching:
 
 ```ts
-import { getPrice } from '@the-arj/ai-kit/cost-guard'
+import { getPrice } from '@the-arj/llmfort/cost-guard'
 const { input, output, cachedInput } = getPrice('claude-sonnet-4-6')
 // { input: 3.00, output: 15.00, cachedInput: 0.30 }
 ```
@@ -168,7 +170,7 @@ Token estimation is model-aware: Claude uses a denser 3.5 chars/token heuristic 
 ## End-to-end example
 
 ```ts
-import { promptSafe, costGuard } from '@the-arj/ai-kit'
+import { promptSafe, costGuard } from '@the-arj/llmfort'
 import Anthropic from '@anthropic-ai/sdk'
 
 const guard  = costGuard({ model: 'claude-sonnet-4-6', budget: { session: 1.00 } })

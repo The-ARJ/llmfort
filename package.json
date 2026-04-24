@@ -1,8 +1,9 @@
 {
-  "name": "@the-arj/ai-kit",
+  "name": "@the-arj/llmfort",
   "version": "0.2.0",
-  "description": "Zero-dependency AI toolkit for Node.js — provider-agnostic tool/function-calling schemas, prompt-injection + PII scanner, and pre-call cost/budget guardrails. Works with GPT-5, Claude 4.x, Gemini 3, DeepSeek, Llama, Mistral.",
+  "description": "Fortify your LLM calls — zero-dependency Node.js library for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, and pre-call cost/budget guardrails. Works with GPT-5, Claude 4.x, Gemini 3, DeepSeek, Llama, Mistral.",
   "keywords": [
+    "llmfort",
     "ai", "llm", "typescript", "nodejs",
     "openai", "anthropic", "claude", "chatgpt", "gpt-5", "gpt-4.1",
     "gemini", "gemini-3", "deepseek", "llama", "groq", "mistral",
@@ -90,8 +91,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/The-ARJ/ai-kit.git"
+    "url": "git+https://github.com/The-ARJ/llmfort.git"
   },
-  "bugs": { "url": "https://github.com/The-ARJ/ai-kit/issues" },
-  "homepage": "https://github.com/The-ARJ/ai-kit#readme"
+  "bugs": { "url": "https://github.com/The-ARJ/llmfort/issues" },
+  "homepage": "https://github.com/The-ARJ/llmfort#readme"
 }
