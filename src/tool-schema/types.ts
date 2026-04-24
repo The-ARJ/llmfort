@@ -19,6 +19,7 @@ export interface ParameterSchema {
   type: 'object'
   properties: Record<string, JsonSchemaProperty>
   required: string[]
+  additionalProperties?: boolean
 }
 
 /** Output shape for OpenAI / Groq / Mistral tool calling */

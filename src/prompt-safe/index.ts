@@ -22,13 +22,23 @@ export interface PromptSafeOptions {
 function scan(text: string, patterns: Pattern[]): Violation[] {
   const violations: Violation[] = []
   for (const p of patterns) {
-    // Reset lastIndex for global regexes
-    p.regex.lastIndex = 0
-    const m = p.regex.exec(text)
-    if (m) {
-      violations.push({ type: p.type, label: p.label, match: m[0] })
+    if (p.regex.global) {
+      // Global regex: iterate all matches, but stop after one valid hit per pattern
+      // so a single email in a prompt doesn't produce a flood of duplicates.
+      p.regex.lastIndex = 0
+      let m: RegExpExecArray | null
+      while ((m = p.regex.exec(text)) !== null) {
+        if (p.validate && !p.validate(m[0], text, m.index)) continue
+        violations.push({ type: p.type, label: p.label, match: m[0] })
+        break
+      }
+      p.regex.lastIndex = 0
+    } else {
+      const m = p.regex.exec(text)
+      if (m && (!p.validate || p.validate(m[0], text, m.index))) {
+        violations.push({ type: p.type, label: p.label, match: m[0] })
+      }
     }
-    p.regex.lastIndex = 0
   }
   return violations
 }
@@ -66,6 +76,9 @@ const PII_REDACT_MAP: Record<string, string> = {
   ssn:         '[REDACTED_SSN]',
   credit_card: '[REDACTED_CC]',
   ipv4:        '[REDACTED_IP]',
+  passport:    '[REDACTED_PASSPORT]',
+  api_key:     '[REDACTED_API_KEY]',
+  jwt:         '[REDACTED_JWT]',
 }
 
 /**
@@ -81,7 +94,17 @@ promptSafe.redact = function redact(text: string): string {
   for (const p of PII_PATTERNS) {
     const replacement = PII_REDACT_MAP[p.label] ?? '[REDACTED]'
     p.regex.lastIndex = 0
-    result = result.replace(p.regex, replacement)
+    if (p.validate) {
+      result = result.replace(p.regex, (match, ..._rest) => {
+        // offset is the second-to-last argument (before the original string).
+        const args = _rest as unknown[]
+        const original = args[args.length - 1] as string
+        const offset = args[args.length - 2] as number
+        return p.validate!(match, original, offset) ? replacement : match
+      })
+    } else {
+      result = result.replace(p.regex, replacement)
+    }
     p.regex.lastIndex = 0
   }
   return result

@@ -85,6 +85,23 @@ describe('toolSchemaAll', () => {
   })
 })
 
+describe('toolSchema — strict-mode compatibility', () => {
+  it('emits additionalProperties:false on OpenAI output (required for strict mode)', () => {
+    const schema = toolSchema(weatherMeta, 'openai')
+    expect(schema.function.parameters.additionalProperties).toBe(false)
+  })
+
+  it('emits additionalProperties:false on Anthropic output', () => {
+    const schema = toolSchema(weatherMeta, 'anthropic')
+    expect(schema.input_schema.additionalProperties).toBe(false)
+  })
+
+  it('emits additionalProperties:false on Gemini output', () => {
+    const schema = toolSchema(weatherMeta, 'gemini')
+    expect(schema.functionDeclarations[0]!.parameters.additionalProperties).toBe(false)
+  })
+})
+
 describe('toolSchema — edge cases', () => {
   it('defaults name to "tool" when not supplied', () => {
     const schema = toolSchema({ description: 'no name', params: {} }, 'openai')

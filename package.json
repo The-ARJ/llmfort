@@ -1,48 +1,71 @@
 {
   "name": "@the-arj/ai-kit",
-  "version": "0.1.0",
-  "description": "AI toolkit for Node.js — tool schema generation, prompt safety, and cost guardrails.",
+  "version": "0.2.0",
+  "description": "Zero-dependency AI toolkit for Node.js — provider-agnostic tool/function-calling schemas, prompt-injection + PII scanner, and pre-call cost/budget guardrails. Works with GPT-5, Claude 4.x, Gemini 3, DeepSeek, Llama, Mistral.",
   "keywords": [
-    "ai", "llm", "typescript",
-    "claude", "chatgpt", "gpt-4o", "gpt-4o-mini",
-    "gemini", "deepseek", "llama", "groq", "mistral",
-    "tool-calling", "function-calling", "json-schema",
-    "prompt-injection", "prompt-safety", "pii", "jailbreak",
-    "cost-guard", "token-budget", "token-cost",
-    "prompt-safe", "tool-schema", "ai-safety"
+    "ai", "llm", "typescript", "nodejs",
+    "openai", "anthropic", "claude", "chatgpt", "gpt-5", "gpt-4.1",
+    "gemini", "gemini-3", "deepseek", "llama", "groq", "mistral",
+    "tool-calling", "function-calling", "json-schema", "structured-outputs",
+    "prompt-injection", "prompt-safety", "llm-security", "pii", "pii-detection",
+    "jailbreak", "prompt-guard", "llm-guard",
+    "cost-guard", "token-budget", "token-cost", "llm-cost",
+    "ai-safety", "ai-security"
   ],
   "author": "The-ARJ",
   "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
   "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
     "./tool-schema": {
       "import": {
-        "types": "./dist/tool-schema/index.d.mts",
+        "types": "./dist/tool-schema/index.d.ts",
         "default": "./dist/tool-schema/index.mjs"
       },
       "require": {
-        "types": "./dist/tool-schema/index.d.ts",
+        "types": "./dist/tool-schema/index.d.cts",
         "default": "./dist/tool-schema/index.cjs"
       }
     },
     "./prompt-safe": {
       "import": {
-        "types": "./dist/prompt-safe/index.d.mts",
+        "types": "./dist/prompt-safe/index.d.ts",
         "default": "./dist/prompt-safe/index.mjs"
       },
       "require": {
-        "types": "./dist/prompt-safe/index.d.ts",
+        "types": "./dist/prompt-safe/index.d.cts",
         "default": "./dist/prompt-safe/index.cjs"
       }
     },
     "./cost-guard": {
       "import": {
-        "types": "./dist/cost-guard/index.d.mts",
+        "types": "./dist/cost-guard/index.d.ts",
         "default": "./dist/cost-guard/index.mjs"
       },
       "require": {
-        "types": "./dist/cost-guard/index.d.ts",
+        "types": "./dist/cost-guard/index.d.cts",
         "default": "./dist/cost-guard/index.cjs"
       }
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "tool-schema": ["./dist/tool-schema/index.d.cts"],
+      "prompt-safe": ["./dist/prompt-safe/index.d.cts"],
+      "cost-guard": ["./dist/cost-guard/index.d.cts"]
     }
   },
   "files": ["dist", "README.md", "LICENSE"],
@@ -62,9 +85,12 @@
   },
   "engines": { "node": ">=18" },
   "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/The-ARJ/ai-kit.git"
+    "url": "git+https://github.com/The-ARJ/ai-kit.git"
   },
   "bugs": { "url": "https://github.com/The-ARJ/ai-kit/issues" },
   "homepage": "https://github.com/The-ARJ/ai-kit#readme"

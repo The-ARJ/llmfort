@@ -87,7 +87,7 @@ export function costGuard(options: CostGuardOptions): CostGuard {
   let calls       = 0
 
   function buildEstimate(prompt: string, outputTokens?: number): CostEstimate {
-    const inputTokens = estimateTokens(prompt)
+    const inputTokens = estimateTokens(prompt, model)
     const out = outputTokens ?? assumedOutputTokens
     return {
       inputTokens,
