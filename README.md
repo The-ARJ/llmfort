@@ -1,21 +1,22 @@
 # @the-arj/llmfort
 
-> Fortify your LLM calls. Zero-dependency Node.js toolkit for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, structured JSON output with repair, and pre-call cost/budget guardrails.
+> Fortify your LLM calls. Zero-dependency Node.js toolkit for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, structured JSON output with repair, conversation history trimming, and pre-call cost/budget guardrails.
 
-Four focused modules, zero runtime dependencies, full TypeScript types, ESM + CJS.
+Five focused modules, zero runtime dependencies, full TypeScript types, ESM + CJS.
 Built for the 2026 model landscape: **GPT-5**, **Claude 4.7**, **Gemini 3**, **DeepSeek V3.2**, **Llama 4**, **Mistral**, and any OpenAPI-compatible LLM.
 
-`llmfort` sits between your app code and whichever LLM SDK you use. It won't stream, it won't route, it won't call APIs for you — it fortifies the four surfaces provider SDKs leave exposed: **schema shape**, **prompt safety**, **structured output**, and **spend**.
+`llmfort` sits between your app code and whichever LLM SDK you use. It won't stream, it won't route, it won't call APIs for you — it fortifies the five surfaces provider SDKs leave exposed: **schema shape**, **prompt safety**, **structured output**, **conversation length**, and **spend**.
 
 ```ts
 // Root import (convenient)
-import { toolSchema, promptSafe, costGuard, structOut } from '@the-arj/llmfort'
+import { toolSchema, promptSafe, structOut, contextTrim, costGuard } from '@the-arj/llmfort'
 
 // Or import the one module you need (smaller bundle)
-import { toolSchema } from '@the-arj/llmfort/tool-schema'
-import { promptSafe } from '@the-arj/llmfort/prompt-safe'
-import { structOut } from '@the-arj/llmfort/struct-out'
-import { costGuard } from '@the-arj/llmfort/cost-guard'
+import { toolSchema }  from '@the-arj/llmfort/tool-schema'
+import { promptSafe }  from '@the-arj/llmfort/prompt-safe'
+import { structOut }   from '@the-arj/llmfort/struct-out'
+import { contextTrim } from '@the-arj/llmfort/context-trim'
+import { costGuard }   from '@the-arj/llmfort/cost-guard'
 ```
 
 ---
@@ -37,6 +38,7 @@ Requires **Node.js ≥ 18**. Works from both ESM and CJS.
 | One tool definition that works on OpenAI, Anthropic, Gemini | `zod-to-json-schema`, `ai` SDK, provider SDKs | Each SDK emits only its own format. This package emits all three envelopes from a single metadata object, with `additionalProperties: false` for strict-mode compatibility. |
 | Block prompt injection / PII before it reaches the model | Python's `llm-guard` / `presidio` | Pure-JS, offline, zero-dep, multilingual. No HTTP, no telemetry, no account. |
 | Turn a noisy LLM response into a validated, typed object | Hand-rolled JSON.parse + Zod + retry loop in every project | Extraction, lenient parse, truncation repair, validation, and a surgical repair prompt loop — with any validator (Zod, Valibot, ArkType, AJV, plain JSON Schema). |
+| Keep a long conversation under the model's context limit without breaking it | Naive `messages.slice(-20)`, hand-rolled summarization | Turn-aware trimming that preserves system prompts, pinned messages, tool_call/tool_result pairs, and your last N turns. Three strategies: sliding, importance-scored, or LLM-summarized. |
 | Hard stop if a call would blow the budget | `tiktoken`, `gpt-tokenizer`, `llm-cost` | Those count tokens. This **enforces** per-call and session budgets with a typed error, and tracks real spend after each call. |
 
 ---
@@ -196,6 +198,70 @@ The built-in JSON Schema checker covers what LLMs actually emit (`type`, `requir
 
 ---
 
+### `context-trim` — Keep conversations alive without losing what matters
+
+As a chat grows, it approaches the model's context limit. Naive solutions — `messages.slice(-20)`, or a summarization call on every turn — either lose what the user set up at the start, or bleed money with every message. `context-trim` is turn-aware: it never splits a user/assistant pair, never orphans a tool result, and lets you keep the early-conversation constraints that the user stated once and expects to be remembered.
+
+```ts
+import { contextTrim } from '@the-arj/llmfort/context-trim'
+
+const trimmed = await contextTrim(messages, {
+  model: 'gpt-5',               // for per-model token-overhead accounting
+  maxTokens: 100_000,           // your budget for history (leave room for reply!)
+  strategy: 'sliding',          // 'sliding' | 'importance' | 'summary'
+  keepLastTurns: 4,             // last N user/assistant turns always survive
+})
+
+await openai.chat.completions.create({
+  model: 'gpt-5',
+  messages: trimmed.messages,   // ready to send
+})
+```
+
+**Three strategies**, pick the one that fits your app:
+
+- **`sliding`** (default) — drop oldest turns first. Predictable. Right for most chatbots.
+- **`importance`** — drop lowest-score turns first. Keeps questions, constraints, corrections over acknowledgments. Right when the early parts of a conversation carry the real signal.
+- **`summary`** — invoke *your* callback to summarize the dropped block into a single message. No LLM-calling magic — you control the cost and the model.
+
+```ts
+// Strategy: summary — you own the LLM call
+const trimmed = await contextTrim(messages, {
+  maxTokens: 50_000,
+  strategy: 'summary',
+  keepLastTurns: 2,
+  summarize: async (toSummarize) => {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-5-nano',   // cheap model is fine here
+      messages: [
+        { role: 'system', content: 'Summarize these messages in 3 sentences.' },
+        ...toSummarize,
+      ],
+    })
+    return res.choices[0].message.content!
+  },
+})
+```
+
+**Hard rules — enforced across every strategy:**
+
+- **System messages are never trimmed** (unless `keepSystem: false`).
+- **Last `keepLastTurns` are always preserved** (default 4).
+- **`pinned: true` messages survive any trim** — mark the user's initial constraints and they stick.
+- **Tool-call / tool-result pairs stay atomic.** If a trim would orphan a tool result, we expand the removal to include its parent assistant call. If a tool result has no matching call in the history (broken state), it's dropped first.
+- **Turn boundaries are never split.** An assistant reply is never separated from its user message.
+
+**Token counting accounts for per-message overhead** — OpenAI adds ~4 tokens per message for role wrapping; Anthropic and Gemini have their own constants. Most naive counters miss this and systematically underestimate by 3-10%.
+
+```ts
+contextTrim.count(messages, 'gpt-5')      // total tokens incl. overhead
+contextTrim.countMessage(msg, 'gpt-5')    // single message
+contextTrim.dryRun(messages, opts)        // { wouldTrim, tokensBefore, overBudgetBy }
+contextTrim.score(msg)                    // 0..10 importance score
+```
+
+---
+
 ### `cost-guard` — Pre-call cost estimation and budget enforcement
 
 ```ts
@@ -343,6 +409,22 @@ Returns `StructOutResult<T>`: `{ ok: true, data, attempts }` | `{ ok: false, err
 
 Sync helpers: `structOut.extract`, `structOut.parse`, `structOut.validate`, `structOut.parseSafe`.
 Errors: `StructOutError` with `.kind` of `'no_json' | 'parse' | 'validation' | 'exhausted' | 'aborted'`.
+
+### `contextTrim(messages, options)`
+
+| Option | Type | Description |
+|---|---|---|
+| `maxTokens` | `number` | Hard cap on tokens of history to keep |
+| `model` | `string` | Model ID (for per-family overhead constants) |
+| `strategy` | `'sliding' \| 'importance' \| 'summary'` | Default `'sliding'` |
+| `keepLastTurns` | `number` | Last N turns always preserved (default `4`) |
+| `keepSystem` | `boolean` | Keep system messages (default `true`) |
+| `summarize` | `(msgs) => Promise<string>` | Required for `strategy: 'summary'` |
+| `summaryRole` | `'system' \| 'user'` | Where the summary goes (default `'system'`) |
+| `score` | `(msg) => number` | Custom scorer for `strategy: 'importance'` |
+
+Returns `TrimResult`: `{ messages, removed, tokensBefore, tokensAfter, trimmed, strategy, overflow }`.
+Sync helpers: `contextTrim.count`, `contextTrim.countMessage`, `contextTrim.dryRun`, `contextTrim.score`.
 
 ### `costGuard(options)`
 

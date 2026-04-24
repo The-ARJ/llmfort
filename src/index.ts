@@ -51,3 +51,12 @@ export {
   type ValidationResult,
   type Validator,
 } from './struct-out/index.js'
+
+export {
+  contextTrim,
+  type Message,
+  type ToolCall,
+  type TrimOptions,
+  type TrimResult,
+  type TrimStrategy,
+} from './context-trim/index.js'

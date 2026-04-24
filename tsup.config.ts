@@ -7,6 +7,7 @@ export default defineConfig({
     'prompt-safe/index': 'src/prompt-safe/index.ts',
     'cost-guard/index':  'src/cost-guard/index.ts',
     'struct-out/index':  'src/struct-out/index.ts',
+    'context-trim/index': 'src/context-trim/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,

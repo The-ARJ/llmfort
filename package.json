@@ -1,7 +1,7 @@
 {
   "name": "@the-arj/llmfort",
-  "version": "0.3.0",
-  "description": "Fortify your LLM calls — zero-dependency Node.js library for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, structured-JSON output with repair loop, and pre-call cost/budget guardrails. Works with GPT-5, Claude 4.x, Gemini 3, DeepSeek, Llama, Mistral.",
+  "version": "0.4.0",
+  "description": "Fortify your LLM calls — zero-dependency Node.js library for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, structured-JSON output with repair loop, conversation history trimming, and pre-call cost/budget guardrails. Works with GPT-5, Claude 4.x, Gemini 3, DeepSeek, Llama, Mistral.",
   "keywords": [
     "llmfort",
     "ai", "llm", "typescript", "nodejs",
@@ -13,6 +13,7 @@
     "cost-guard", "token-budget", "token-cost", "llm-cost",
     "structured-output", "json-repair", "json-extract", "llm-json",
     "zod", "ajv", "valibot", "arktype",
+    "context-trim", "conversation-history", "message-window", "token-window",
     "ai-safety", "ai-security"
   ],
   "author": "The-ARJ",
@@ -72,6 +73,16 @@
         "default": "./dist/struct-out/index.cjs"
       }
     },
+    "./context-trim": {
+      "import": {
+        "types": "./dist/context-trim/index.d.ts",
+        "default": "./dist/context-trim/index.mjs"
+      },
+      "require": {
+        "types": "./dist/context-trim/index.d.cts",
+        "default": "./dist/context-trim/index.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
@@ -79,7 +90,8 @@
       "tool-schema": ["./dist/tool-schema/index.d.cts"],
       "prompt-safe": ["./dist/prompt-safe/index.d.cts"],
       "cost-guard": ["./dist/cost-guard/index.d.cts"],
-      "struct-out": ["./dist/struct-out/index.d.cts"]
+      "struct-out": ["./dist/struct-out/index.d.cts"],
+      "context-trim": ["./dist/context-trim/index.d.cts"]
     }
   },
   "files": ["dist", "README.md", "LICENSE"],
