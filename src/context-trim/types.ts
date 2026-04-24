@@ -5,13 +5,37 @@
  * DeepSeek). For Anthropic/Gemini, adapt at the boundary — the `role`/`content`
  * + optional `tool_calls` / `tool_call_id` structure maps cleanly.
  */
+/**
+ * A single content block. Covers Claude's block shape (text, thinking,
+ * redacted_thinking, tool_use, tool_result, image) and maps cleanly onto
+ * Gemini `Part` (just a different field name). OpenAI-flavored multimodal
+ * content (array of {type:'text'|'image_url',...}) also fits.
+ *
+ * The type tag is open-ended — unknown block types pass through unchanged.
+ */
+export interface ContentBlock {
+  type: 'text' | 'thinking' | 'redacted_thinking' | 'tool_use' | 'tool_result' | 'image' | string
+  text?: string
+  thinking?: string
+  /** Anthropic echoes a signature on thinking blocks; must be preserved verbatim on next turn. */
+  signature?: string
+  // Block-type-specific fields (tool_use/tool_result/image/etc.) pass through.
+  [k: string]: unknown
+}
+
 export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool'
   /**
-   * Content string. May be null for assistant turns that only contain tool_calls
-   * (OpenAI spec). Token counting handles both cases.
+   * Content. Three shapes:
+   *   - string: plain OpenAI-style user/assistant/system turn
+   *   - null:   assistant turn that only contains tool_calls
+   *   - array:  Claude / Gemini / OpenAI-multimodal content blocks
+   *
+   * When it's an array, thinking blocks are preserved atomically by
+   * `contextTrim` — dropping them mid-conversation breaks Claude's
+   * reasoning chain on the following turn.
    */
-  content: string | null
+  content: string | null | ContentBlock[]
   /** Function or tool name, used by some providers. */
   name?: string
   /** When role === 'tool', the id of the tool_call this is responding to. */

@@ -1,22 +1,29 @@
 # @the-arj/llmfort
 
-> Fortify your LLM calls. Zero-dependency Node.js toolkit for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, structured JSON output with repair, conversation history trimming, and pre-call cost/budget guardrails.
+> Fortify your LLM calls. Zero-dependency Node.js toolkit for **GPT**, **Claude**, and **Gemini** — tool schemas, prompt-injection + PII scanning, structured JSON with repair, conversation trimming, cost/budget guardrails, 429 retry, error normalization, cache-key stability, and streaming tool-call accumulation.
 
-Five focused modules, zero runtime dependencies, full TypeScript types, ESM + CJS.
-Built for the 2026 model landscape: **GPT-5**, **Claude 4.7**, **Gemini 3**, **DeepSeek V3.2**, **Llama 4**, **Mistral**, and any OpenAPI-compatible LLM.
+Nine focused modules. Zero runtime dependencies. Full TypeScript types. ESM + CJS.
+Built for the April 2026 model landscape: **GPT-5 / 5-mini / 5-nano**, **GPT-4.1**, **o3 / o4-mini**, **Claude Opus 4.7 / Sonnet 4.6 / Haiku 4.5**, **Gemini 3 Pro / Flash**.
 
-`llmfort` sits between your app code and whichever LLM SDK you use. It won't stream, it won't route, it won't call APIs for you — it fortifies the five surfaces provider SDKs leave exposed: **schema shape**, **prompt safety**, **structured output**, **conversation length**, and **spend**.
+`llmfort` sits between your app code and whichever LLM SDK you use. It won't stream, it won't route, it won't call APIs for you — it fortifies the surfaces provider SDKs leave exposed.
 
 ```ts
 // Root import (convenient)
-import { toolSchema, promptSafe, structOut, contextTrim, costGuard } from '@the-arj/llmfort'
+import {
+  toolSchema, promptSafe, structOut, contextTrim, costGuard,
+  retryLLM, normalizeError, cacheKey, toolCallAccumulator,
+} from '@the-arj/llmfort'
 
 // Or import the one module you need (smaller bundle)
-import { toolSchema }  from '@the-arj/llmfort/tool-schema'
-import { promptSafe }  from '@the-arj/llmfort/prompt-safe'
-import { structOut }   from '@the-arj/llmfort/struct-out'
-import { contextTrim } from '@the-arj/llmfort/context-trim'
-import { costGuard }   from '@the-arj/llmfort/cost-guard'
+import { toolSchema }          from '@the-arj/llmfort/tool-schema'
+import { promptSafe }          from '@the-arj/llmfort/prompt-safe'
+import { structOut }           from '@the-arj/llmfort/struct-out'
+import { contextTrim }         from '@the-arj/llmfort/context-trim'
+import { costGuard }           from '@the-arj/llmfort/cost-guard'
+import { retryLLM }            from '@the-arj/llmfort/retry-llm'
+import { normalizeError }      from '@the-arj/llmfort/error-normalize'
+import { cacheKey }            from '@the-arj/llmfort/cache-key'
+import { toolCallAccumulator } from '@the-arj/llmfort/stream-tools'
 ```
 
 ---
@@ -39,7 +46,11 @@ Requires **Node.js ≥ 18**. Works from both ESM and CJS.
 | Block prompt injection / PII before it reaches the model | Python's `llm-guard` / `presidio` | Pure-JS, offline, zero-dep, multilingual. No HTTP, no telemetry, no account. |
 | Turn a noisy LLM response into a validated, typed object | Hand-rolled JSON.parse + Zod + retry loop in every project | Extraction, lenient parse, truncation repair, validation, and a surgical repair prompt loop — with any validator (Zod, Valibot, ArkType, AJV, plain JSON Schema). |
 | Keep a long conversation under the model's context limit without breaking it | Naive `messages.slice(-20)`, hand-rolled summarization | Turn-aware trimming that preserves system prompts, pinned messages, tool_call/tool_result pairs, and your last N turns. Three strategies: sliding, importance-scored, or LLM-summarized. |
-| Hard stop if a call would blow the budget | `tiktoken`, `gpt-tokenizer`, `llm-cost` | Those count tokens. This **enforces** per-call and session budgets with a typed error, and tracks real spend after each call. |
+| Hard stop if a call would blow the budget, **including hidden reasoning tokens** | `tiktoken`, `gpt-tokenizer`, `llm-cost` | Those count tokens. This **enforces** per-call, session, and reasoning budgets with a typed error; understands prompt-caching economics (cached-input discount, Anthropic cache-write premium); tracks real spend after each call. |
+| Retry 429 and transient errors correctly across three providers | Hand-rolled `setTimeout` loops | Reads OpenAI `x-ratelimit-reset-*`, Anthropic `retry-after`, Gemini `RetryInfo` — falls back to exponential backoff with jitter. Never retries on 400/401/403/content-filter. |
+| Know whether a provider error is "safe to retry", "billing", "content filter", or "context overflow" | `if (err.status === 429 \|\| err.error?.type === 'rate_limit_error' \|\| ...)` in every project | Tagged-union `NormalizedError` across OpenAI + Anthropic + Gemini. |
+| Build a stable prompt-cache key (byte-stable across tool reorderings, JSON-key reorderings, whitespace drift) | Hand-rolled hashing of `JSON.stringify(messages)` | A canonical serializer + SHA-256 that won't silently break your Anthropic `cache_control` hit rate. |
+| Accumulate streamed tool-call JSON-argument deltas (OpenAI + Anthropic) | Custom state machine per app | One `toolCallAccumulator(provider)` that yields completed tool calls. |
 
 ---
 
@@ -262,56 +273,162 @@ contextTrim.score(msg)                    // 0..10 importance score
 
 ---
 
-### `cost-guard` — Pre-call cost estimation and budget enforcement
+### `cost-guard` — Pre-call cost estimation, budget enforcement, reasoning-token aware
 
 ```ts
 import { costGuard, CostLimitError } from '@the-arj/llmfort/cost-guard'
 
 const guard = costGuard({
-  model: 'claude-sonnet-4-6',
+  model: 'claude-opus-4-7',
   budget: {
-    perCall: 0.05,   // max $0.05 per request
-    session: 0.50,   // max $0.50 for this guard's lifetime
+    perCall:   0.05,  // max $0.05 per request
+    session:   2.00,  // max $2.00 for this guard's lifetime
+    reasoning: 0.50,  // max $0.50 spent on reasoning/thinking tokens
   },
 })
 
-// Before each call — throws CostLimitError if over budget:
+// Before each call — throws CostLimitError if over budget (perCall | session | reasoning):
 await guard.check(prompt)
 
-// After the call, record real usage from the API response:
-guard.record(response.usage.input_tokens, response.usage.output_tokens)
+// After the call, record real usage. Pass the usage object straight from the API:
+guard.record({
+  // Claude: res.usage.{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}
+  input:      res.usage.input_tokens,
+  output:     res.usage.output_tokens,
+  cacheHit:   res.usage.cache_read_input_tokens,
+  cacheWrite: res.usage.cache_creation_input_tokens,
+})
 
-// Cumulative stats:
+// OpenAI: res.usage.{prompt_tokens, completion_tokens, completion_tokens_details.reasoning_tokens, prompt_tokens_details.cached_tokens}
+guard.record({
+  input:     res.usage.prompt_tokens - (res.usage.prompt_tokens_details?.cached_tokens ?? 0),
+  output:    res.usage.completion_tokens,
+  reasoning: res.usage.completion_tokens_details?.reasoning_tokens,
+  cacheHit:  res.usage.prompt_tokens_details?.cached_tokens,
+})
+
 console.log(guard.summary())
-// { calls: 3, spent: 0.12, remaining: 0.38, totalInputTokens: 48000, ... }
+// {
+//   calls: 3, spent: 0.42, remaining: 1.58,
+//   totalInputTokens: 48000, totalOutputTokens: 12000,
+//   totalReasoningTokens: 45000, reasoningSpent: 0.36, reasoningRemaining: 0.14,
+//   totalCacheHitTokens: 20000, totalCacheWriteTokens: 5000, cacheSavings: 0.09,
+//   ...
+// }
 ```
 
-**Supported models (verified April 2026)**
+**What's new vs. naive token counters:**
+
+- **Reasoning tokens are separately metered.** GPT-5 `reasoning_effort: high` and Claude 4.6+ adaptive thinking can be **5-10× the visible output**. A session budget without reasoning accounting is off by an order of magnitude.
+- **Prompt-cache economics.** Anthropic charges 1.25× for 5-minute cache writes and 0.1× for cache hits. OpenAI discounts cached input by ~50%. `record()` accepts `cacheHit` / `cacheWrite` so your estimates match your bill.
+- **No session poisoning.** `record()` throws on NaN/Infinity/negative inputs before mutating totals — one bad value can't silently disable budget enforcement.
+
+**Supported models (verified April 2026):**
 
 | Family | Models |
 |---|---|
 | **OpenAI GPT-5 / GPT-4.1** | `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano` |
-| **OpenAI reasoning** | `o3`, `o3-mini`, `o3-pro`, `o4-mini` |
+| **OpenAI reasoning** | `o3`, `o3-pro`, `o3-mini`, `o4-mini` |
 | **OpenAI legacy** | `gpt-4o-mini`, `gpt-4-turbo`, `gpt-4`, `gpt-3.5-turbo` |
 | **Claude 4.x** | `claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5` |
 | **Claude 3.5** | `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229` |
 | **Gemini 3 / 2.5** | `gemini-3-pro`, `gemini-3-flash`, `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite` |
 | **Gemini 1.5** | `gemini-1.5-pro`, `gemini-1.5-flash` |
-| **DeepSeek** | `deepseek-chat`, `deepseek-reasoner` |
-| **Groq / Llama / OSS** | `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `llama-4-scout-17b`, `llama-4-maverick-17b`, `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `kimi-k2` |
-| **Mistral** | `mistral-large-latest`, `mistral-medium-3`, `mistral-small-latest`, `ministral-8b`, `ministral-3b`, `codestral-latest` |
 
-Unknown model names fall back to a conservative flagship estimate (not tied to any specific retired model), so cost checks never silently skip.
+Other providers (Llama, DeepSeek, Mistral, etc.) get a conservative fallback. Bring your own rate via `calcCost(usage, _, customPrice)` if you need exact numbers for them — llmfort is a sidecar, not a pricing registry.
 
-Each `ModelPrice` also exposes `cachedInput` (per 1M tokens) where the provider offers a discount — use it if you're implementing prompt caching:
+Token estimation is model-aware: Claude uses a denser 3.5 chars/token heuristic; CJK-heavy text is clamped to 1.5 chars/token. For exact counts, bring your own tokenizer (`tiktoken`, `@anthropic-ai/tokenizer`, Gemini `countTokens`) and pass the number into `calcCost()` directly.
+
+---
+
+### `retry-llm` — 429 + transient-error retry with provider-aware backoff
 
 ```ts
-import { getPrice } from '@the-arj/llmfort/cost-guard'
-const { input, output, cachedInput } = getPrice('claude-sonnet-4-6')
-// { input: 3.00, output: 15.00, cachedInput: 0.30 }
+import { retryLLM } from '@the-arj/llmfort/retry-llm'
+
+const res = await retryLLM(
+  () => openai.chat.completions.create({ model: 'gpt-5', messages }),
+  { maxAttempts: 5, baseDelayMs: 500 },
+)
 ```
 
-Token estimation is model-aware: Claude uses a denser 3.5 chars/token heuristic and CJK-heavy text is clamped to 1.5 chars/token. Exact tokenization isn't done here — it would require shipping a tokenizer dependency, which is a deliberate non-goal of this package.
+Reads OpenAI `x-ratelimit-reset-*`, Anthropic `retry-after`, Gemini `RetryInfo` — falls back to exponential backoff with jitter. **Never retries** 400 / 401 / 403 / content-filter errors (those won't succeed on retry). Classifies 429 / 5xx / ECONNRESET / overloaded / RESOURCE_EXHAUSTED automatically.
+
+```ts
+await retryLLM(fn, {
+  maxAttempts: 4,
+  baseDelayMs: 500,
+  maxDelayMs:  30_000,
+  jitter:      'equal',          // 'full' | 'equal' | 'none'
+  signal:      abortController.signal,
+  onRetry:     ({ attempt, reason, delayMs }) => log.warn({ attempt, reason, delayMs }),
+  shouldRetry: (err, attempt) => /* optional override */ undefined,
+})
+```
+
+---
+
+### `error-normalize` — One tagged union across OpenAI, Anthropic, and Gemini errors
+
+Every provider throws a different shape. Normalize once, handle once.
+
+```ts
+import { normalizeError, isRetryable } from '@the-arj/llmfort/error-normalize'
+
+try {
+  await someLLMCall()
+} catch (err) {
+  const e = normalizeError(err)
+  //  e.kind: 'rate_limited' | 'context_overflow' | 'content_filtered' | 'schema_invalid'
+  //        | 'auth' | 'billing' | 'bad_request' | 'server_error' | 'network' | 'transient'
+  //        | 'aborted' | 'unknown'
+  //  e.provider: 'openai' | 'anthropic' | 'gemini' | undefined
+  //  e.status, e.message, e.retryable, e.raw
+
+  if (e.kind === 'context_overflow') await trimAndRetry()
+  else if (e.kind === 'content_filtered') return userFacingRefusal()
+  else if (e.retryable) await retryLLM(...)
+  else throw e
+}
+```
+
+---
+
+### `cache-key` — Stable hash for prompt-caching hit rate
+
+Prompt caching breaks when your cache prefix drifts — a reordered tool list, JSON key reshuffling in `tool_calls[].arguments`, or whitespace normalization differences all invalidate the cache and force a full re-read. `cacheKey()` computes a stable hash that survives all of those.
+
+```ts
+import { cacheKey, cacheKeySync } from '@the-arj/llmfort/cache-key'
+
+const key = await cacheKey({
+  model: 'claude-opus-4-7',
+  system: '   You are helpful.   ',   // whitespace normalized
+  messages,                           // content blocks preserved, llmfort-internal fields stripped
+  tools: [...],                       // sorted by name
+  response_format: { ... },
+  params: { temperature: 0.7 },       // JSON keys sorted
+  namespace: 'ws_acme',               // workspace/tenant isolation
+})
+// SHA-256 hex, 64 chars. Use cacheKeySync() for FNV-1a (16 chars, non-cryptographic) if you're not in Node.
+```
+
+---
+
+### `stream-tools` — Accumulate streamed tool-call JSON across chunks
+
+OpenAI streams `tool_calls[].function.arguments` as JSON deltas; Anthropic streams `input_json_delta` events. Every team writes the same state machine. This one is ~120 lines, handles parallel calls, malformed JSON fallback, and exposes `.partial()` for UI "streaming tool call" indicators.
+
+```ts
+import { toolCallAccumulator } from '@the-arj/llmfort/stream-tools'
+
+const acc = toolCallAccumulator('openai')  // or 'anthropic'
+for await (const chunk of stream) {
+  const completed = acc.push(chunk)
+  for (const call of completed) handleToolCall(call)  // { id, name, arguments, argumentsRaw }
+}
+for (const call of acc.flush()) handleToolCall(call)  // always flush at end
+```
 
 ---
 
@@ -348,7 +465,7 @@ async function reviewRequest(userMessage: string) {
 
   // 3. Call Claude
   const res = await call(userMessage)
-  guard.record(res.usage.input_tokens, res.usage.output_tokens)
+  guard.record({ input: res.usage.input_tokens, output: res.usage.output_tokens })
 
   // 4. Structure the output, repairing if the model returned malformed JSON.
   const result = await structOut({
@@ -430,15 +547,63 @@ Sync helpers: `contextTrim.count`, `contextTrim.countMessage`, `contextTrim.dryR
 
 | Option | Type | Description |
 |---|---|---|
-| `model` | `string` | Model ID (e.g. `'claude-sonnet-4-6'`, `'gpt-5'`) |
+| `model` | `string` | Model ID (e.g. `'claude-opus-4-7'`, `'gpt-5'`) |
 | `budget.perCall` | `number` | Max USD per call |
 | `budget.session` | `number` | Max USD across the guard's lifetime |
-| `assumedOutputTokens` | `number` | Assumed output size for pre-call estimate (default: `256`) |
+| `budget.reasoning` | `number` | Max USD of reasoning-token spend (the hidden killer on o-series and Claude thinking) |
+| `assumedOutputTokens` | `number` | Assumed output size for pre-call estimate (default `256`) |
+| `assumedReasoningTokens` | `number` | Assumed reasoning tokens for pre-call estimate (default `0`) |
 
-- `guard.check(prompt)` — async, throws `CostLimitError` if over budget.
+- `guard.check(prompt)` — async, throws `CostLimitError` (kind: `'perCall' \| 'session' \| 'reasoning'`) if over budget.
 - `guard.estimate(prompt)` — sync, returns estimate without enforcing.
-- `guard.record(inputTokens, outputTokens)` — update session totals from real API usage.
-- `guard.summary()` — returns `{ calls, spent, remaining, totalInputTokens, totalOutputTokens, budget }`.
+- `guard.record(usage)` — `usage: { input, output, reasoning?, cacheHit?, cacheWrite? }`. Update session totals.
+- `guard.summary()` — returns `{ calls, spent, reasoningSpent, cacheSavings, remaining, reasoningRemaining, totalInputTokens, totalOutputTokens, totalReasoningTokens, totalCacheHitTokens, totalCacheWriteTokens, budget }`.
+
+### `retryLLM(fn, options)`
+
+| Option | Type | Description |
+|---|---|---|
+| `maxAttempts` | `number` | Total attempts including first try (default `4`) |
+| `baseDelayMs` | `number` | Base delay for exponential backoff (default `500`) |
+| `maxDelayMs` | `number` | Cap on any single delay (default `30_000`) |
+| `jitter` | `'full' \| 'equal' \| 'none'` | Default `'equal'` |
+| `shouldRetry` | `(err, attempt) => boolean \| undefined` | Override the default classifier |
+| `signal` | `AbortSignal` | Abort the retry loop |
+| `onRetry` | `(info) => void` | Fires before each retry sleep |
+
+Exhausted retries throw `RetryExhaustedError` with `.attempts` and `.lastError`.
+Helpers: `classifyError(err)`, `retryDelayFromError(err)`.
+
+### `normalizeError(err)`
+
+Returns `{ kind, message, status?, provider?, retryable, raw }`. Shortcut: `isRetryable(err)`.
+Idempotent — passing an already-normalized error returns it unchanged.
+
+### `cacheKey(input)` / `cacheKeySync(input)`
+
+| Field | Type | Description |
+|---|---|---|
+| `model` | `string` | Required — part of the key so caches don't cross-pollute |
+| `messages` | `Message[]` | Content normalized, `pinned`/`id` stripped, tool-call args re-sorted |
+| `system` | `string` | Separate system prompt (Anthropic) — whitespace-normalized |
+| `tools` | `Array<{name, ...}>` | Sorted by tool name |
+| `response_format` | `unknown` | Structured-output spec |
+| `params` | `Record<string, unknown>` | Deterministic knobs (temperature, top_p, max_tokens) — keys sorted |
+| `namespace` | `string` | Workspace/tenant isolation prefix |
+
+`cacheKey()` is async, returns 64-char SHA-256 hex. `cacheKeySync()` returns 16-char FNV-1a (non-cryptographic).
+`cacheKeyCanonical(input)` returns the canonical string without hashing — useful for debugging.
+
+### `toolCallAccumulator(provider)`
+
+| Method | Returns | |
+|---|---|---|
+| `.push(chunk)` | `CompletedToolCall[]` | Tool calls that completed on this chunk (often empty) |
+| `.flush()` | `CompletedToolCall[]` | Emit any in-flight calls — always call at end of stream |
+| `.partial()` | `Array<{ id?, name?, argumentsRaw, index }>` | In-flight state for UI indicators |
+| `.reset()` | `void` | Clear internal state so the accumulator can be reused |
+
+`CompletedToolCall`: `{ id, name, arguments, argumentsRaw, index? }`.
 
 ---
 

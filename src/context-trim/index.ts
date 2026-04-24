@@ -3,7 +3,7 @@ import { groupTurns, type Turn } from './turns.js'
 import { scoreMessage } from './score.js'
 import type { Message, TrimOptions, TrimResult, TrimStrategy } from './types.js'
 
-export type { Message, ToolCall, TrimOptions, TrimResult, TrimStrategy } from './types.js'
+export type { ContentBlock, Message, ToolCall, TrimOptions, TrimResult, TrimStrategy } from './types.js'
 
 /**
  * Trim a conversation to fit a token budget without breaking it.

@@ -8,6 +8,14 @@ const systemMsg: Message = { role: 'system', content: 'You are a helpful assista
 const u = (c: string): Message => ({ role: 'user', content: c })
 const a = (c: string): Message => ({ role: 'assistant', content: c })
 
+/** Test helper: safe substring check across string | null | ContentBlock[] content. */
+function textOf(m: Message): string {
+  if (typeof m.content === 'string') return m.content
+  if (Array.isArray(m.content)) return m.content.map(b => b.text ?? b.thinking ?? '').join(' ')
+  return ''
+}
+const hasText = (m: Message, needle: string) => textOf(m).includes(needle)
+
 // Conversation: 1 system + 10 (user/assistant) pairs of varying lengths.
 function manyTurns(n: number): Message[] {
   const out: Message[] = [systemMsg]
@@ -101,7 +109,7 @@ describe('contextTrim — sliding (default)', () => {
       msgs.push(a(`filler assistant ${i} ${'x'.repeat(200)}`))
     }
     const r = await contextTrim(msgs, { maxTokens: 200, keepLastTurns: 1 })
-    expect(r.messages.some(m => m.pinned && m.content?.includes('important'))).toBe(true)
+    expect(r.messages.some(m => m.pinned && hasText(m, 'important'))).toBe(true)
   })
 
   it('reports tokensBefore / tokensAfter / overflow', async () => {
@@ -141,8 +149,8 @@ describe('contextTrim — importance', () => {
     const sliding = await contextTrim(msgs, { maxTokens: budget, strategy: 'sliding', keepLastTurns: 1 })
     const importance = await contextTrim(msgs, { maxTokens: budget, strategy: 'importance', keepLastTurns: 1 })
 
-    const slidingHasCorrection = sliding.messages.some(m => m.content?.includes('Actually'))
-    const importanceHasCorrection = importance.messages.some(m => m.content?.includes('Actually'))
+    const slidingHasCorrection = sliding.messages.some(m => hasText(m, 'Actually'))
+    const importanceHasCorrection = importance.messages.some(m => hasText(m, 'Actually'))
 
     // Importance should preserve the correction even when sliding might not.
     if (!slidingHasCorrection) {
@@ -198,7 +206,7 @@ describe('contextTrim — summary', () => {
     expect(summarize).toHaveBeenCalled()
     expect(summarize.mock.calls[0]![0].length).toBeGreaterThan(0)
     // Output should contain a summary message.
-    expect(r.messages.some(m => m.content?.includes('earlier discussion'))).toBe(true)
+    expect(r.messages.some(m => hasText(m, 'earlier discussion'))).toBe(true)
   })
 
   it('places summary as system message by default, before user turns', async () => {
@@ -209,7 +217,7 @@ describe('contextTrim — summary', () => {
       keepLastTurns: 1,
       summarize: async () => 'sum',
     })
-    const sumIdx = r.messages.findIndex(m => m.content?.includes('[summary of earlier'))
+    const sumIdx = r.messages.findIndex(m => hasText(m, '[summary of earlier'))
     const firstUserIdx = r.messages.findIndex(m => m.role === 'user')
     expect(sumIdx).toBeGreaterThanOrEqual(0)
     expect(sumIdx).toBeLessThan(firstUserIdx)
@@ -226,7 +234,7 @@ describe('contextTrim — summary', () => {
     })
     // Should still return trimmed output, not throw.
     expect(r.trimmed).toBe(true)
-    expect(r.messages.some(m => m.content?.includes('[summary of'))).toBe(false)
+    expect(r.messages.some(m => hasText(m, '[summary of'))).toBe(false)
   })
 
   it('falls back to plain removal if summarize returns empty string', async () => {
@@ -237,7 +245,7 @@ describe('contextTrim — summary', () => {
       keepLastTurns: 1,
       summarize: async () => '',
     })
-    expect(r.messages.some(m => m.content?.includes('[summary of'))).toBe(false)
+    expect(r.messages.some(m => hasText(m, '[summary of'))).toBe(false)
   })
 
   it('respects summaryRole:"user"', async () => {
@@ -249,7 +257,7 @@ describe('contextTrim — summary', () => {
       summaryRole: 'user',
       summarize: async () => 'sum',
     })
-    const sum = r.messages.find(m => m.content?.includes('[summary of'))
+    const sum = r.messages.find(m => hasText(m, '[summary of'))
     expect(sum?.role).toBe('user')
   })
 })
@@ -508,6 +516,76 @@ describe('contextTrim — adversarial edge cases', () => {
     const snap = JSON.stringify(msgs)
     contextTrim.dryRun(msgs, { maxTokens: 5 })
     expect(JSON.stringify(msgs)).toBe(snap)
+  })
+})
+
+// ----- Claude content-block awareness -----
+
+describe('contextTrim — Claude content blocks + thinking', () => {
+  it('counts tokens for content-array messages (text + thinking)', () => {
+    const msg: Message = {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'Let me reason about this carefully...', signature: 'sig_abc' },
+        { type: 'text', text: 'The answer is 42.' },
+      ],
+    }
+    const n = contextTrim.countMessage(msg, 'claude-sonnet-4-6')
+    // Must count both blocks, not just the first.
+    expect(n).toBeGreaterThan(15)
+  })
+
+  it('preserves thinking block atomically with its assistant turn', async () => {
+    const msgs: Message[] = [
+      { role: 'system', content: 'You are helpful.' },
+      { role: 'user', content: 'what is 2+2?' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'Simple arithmetic.', signature: 'sig_1' },
+          { type: 'text', text: '4' },
+        ],
+      },
+      ...Array.from({ length: 10 }, (_, i): Message[] => [
+        { role: 'user', content: `f${i} ${'x'.repeat(80)}` },
+        { role: 'assistant', content: `r${i}` },
+      ]).flat(),
+    ]
+    const r = await contextTrim(msgs, { maxTokens: 120, keepLastTurns: 2, model: 'claude-sonnet-4-6' })
+    // If the assistant turn with thinking survives, its content array must be intact.
+    const thinkingTurn = r.messages.find(m =>
+      Array.isArray(m.content) && m.content.some(b => b.type === 'thinking'),
+    )
+    if (thinkingTurn) {
+      const blocks = thinkingTurn.content as any[]
+      expect(blocks.some(b => b.type === 'thinking' && b.signature === 'sig_1')).toBe(true)
+      expect(blocks.some(b => b.type === 'text')).toBe(true)
+    }
+  })
+
+  it('importance scorer reads text from content-array', () => {
+    const a: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: 'Actually, I meant use metric units.' }],
+    }
+    const b: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: 'ok' }],
+    }
+    expect(contextTrim.score(a)).toBeGreaterThan(contextTrim.score(b))
+  })
+
+  it('message with content:null (tool_calls only) still counts', () => {
+    const msg: Message = {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{
+        id: 'x', type: 'function',
+        function: { name: 'get_weather', arguments: '{"city":"Paris"}' },
+      }],
+    }
+    expect(contextTrim.countMessage(msg, 'gpt-5')).toBeGreaterThan(10)
+    expect(() => contextTrim.score(msg)).not.toThrow()
   })
 })
 

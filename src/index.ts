@@ -54,9 +54,40 @@ export {
 
 export {
   contextTrim,
+  type ContentBlock,
   type Message,
   type ToolCall,
   type TrimOptions,
   type TrimResult,
   type TrimStrategy,
 } from './context-trim/index.js'
+
+export {
+  retryLLM,
+  retryDelayFromError,
+  classifyError,
+  RetryExhaustedError,
+  type RetryOptions,
+  type RetryAttemptInfo,
+} from './retry-llm/index.js'
+
+export {
+  normalizeError,
+  isRetryable,
+  type LLMErrorKind,
+  type NormalizedError,
+} from './error-normalize/index.js'
+
+export {
+  cacheKey,
+  cacheKeySync,
+  canonical as cacheKeyCanonical,
+  type CacheKeyInput,
+} from './cache-key/index.js'
+
+export {
+  toolCallAccumulator,
+  type CompletedToolCall,
+  type StreamProvider,
+  type ToolCallAccumulator,
+} from './stream-tools/index.js'

@@ -33,7 +33,9 @@ function overheadFor(model?: string): Overhead {
 }
 
 /**
- * Token count for a single message, including role overhead and any tool calls.
+ * Token count for a single message, including role overhead, content blocks,
+ * and tool calls. Handles all three content shapes: string, null, and
+ * ContentBlock[].
  */
 export function countMessageTokens(msg: Message, model?: string): number {
   const o = overheadFor(model)
@@ -41,6 +43,22 @@ export function countMessageTokens(msg: Message, model?: string): number {
 
   if (typeof msg.content === 'string' && msg.content.length > 0) {
     tokens += estimateTokens(msg.content, model)
+  } else if (Array.isArray(msg.content)) {
+    for (const block of msg.content) {
+      // Text & thinking blocks contribute their text.
+      if (typeof block.text === 'string') tokens += estimateTokens(block.text, model)
+      if (typeof block.thinking === 'string') tokens += estimateTokens(block.thinking, model)
+      // Block structural overhead (rough — each block has a small envelope).
+      tokens += 4
+      // tool_use/tool_result blocks: best-effort count their JSON payload.
+      if (block.type === 'tool_use' && typeof (block as any).input === 'object') {
+        try { tokens += estimateTokens(JSON.stringify((block as any).input), model) } catch { /* ignore */ }
+      }
+      if (block.type === 'tool_result' && (block as any).content !== undefined) {
+        const c = (block as any).content
+        if (typeof c === 'string') tokens += estimateTokens(c, model)
+      }
+    }
   }
 
   if (msg.name) tokens += estimateTokens(msg.name, model)

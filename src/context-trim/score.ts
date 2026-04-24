@@ -21,9 +21,19 @@ const FILLER_RE        = /^(sure|of course|okay|ok|thanks|thank you|got it|under
 
 const DEFAULT_SCORE = 5
 
+function extractText(msg: Message): string {
+  if (typeof msg.content === 'string') return msg.content
+  if (Array.isArray(msg.content)) {
+    return msg.content
+      .map(b => (typeof b.text === 'string' ? b.text : typeof b.thinking === 'string' ? b.thinking : ''))
+      .join(' ')
+  }
+  return ''
+}
+
 export function scoreMessage(msg: Message): number {
   // No content and no tool calls = no signal at all.
-  const content = (msg.content ?? '').trim()
+  const content = extractText(msg).trim()
   if (!content && !msg.tool_calls?.length) return 0
 
   let score = DEFAULT_SCORE

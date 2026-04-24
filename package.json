@@ -1,19 +1,24 @@
 {
   "name": "@the-arj/llmfort",
-  "version": "0.4.0",
-  "description": "Fortify your LLM calls — zero-dependency Node.js library for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, structured-JSON output with repair loop, conversation history trimming, and pre-call cost/budget guardrails. Works with GPT-5, Claude 4.x, Gemini 3, DeepSeek, Llama, Mistral.",
+  "version": "0.5.0",
+  "description": "Fortify your LLM calls — zero-dependency Node.js toolkit for GPT, Claude, and Gemini: tool/function-calling schemas, prompt-injection + PII scanning, structured-JSON output with repair, conversation trimming, cost/budget guardrails, provider-aware 429 retry, error normalization, stable cache keys, and streaming tool-call accumulation.",
   "keywords": [
     "llmfort",
     "ai", "llm", "typescript", "nodejs",
-    "openai", "anthropic", "claude", "chatgpt", "gpt-5", "gpt-4.1",
-    "gemini", "gemini-3", "deepseek", "llama", "groq", "mistral",
+    "openai", "anthropic", "claude", "gemini", "chatgpt",
+    "gpt-5", "gpt-5-mini", "gpt-4.1", "o3", "o4-mini",
+    "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5",
+    "gemini-3", "gemini-2.5",
     "tool-calling", "function-calling", "json-schema", "structured-outputs",
     "prompt-injection", "prompt-safety", "llm-security", "pii", "pii-detection",
-    "jailbreak", "prompt-guard", "llm-guard",
-    "cost-guard", "token-budget", "token-cost", "llm-cost",
+    "jailbreak", "prompt-guard",
+    "cost-guard", "token-budget", "llm-cost", "reasoning-tokens",
+    "prompt-caching", "cache-key",
     "structured-output", "json-repair", "json-extract", "llm-json",
     "zod", "ajv", "valibot", "arktype",
-    "context-trim", "conversation-history", "message-window", "token-window",
+    "context-trim", "conversation-history", "message-window", "thinking-blocks",
+    "rate-limit", "retry", "429", "backoff",
+    "streaming", "tool-call-stream", "error-normalize",
     "ai-safety", "ai-security"
   ],
   "author": "The-ARJ",
@@ -83,15 +88,59 @@
         "default": "./dist/context-trim/index.cjs"
       }
     },
+    "./retry-llm": {
+      "import": {
+        "types": "./dist/retry-llm/index.d.ts",
+        "default": "./dist/retry-llm/index.mjs"
+      },
+      "require": {
+        "types": "./dist/retry-llm/index.d.cts",
+        "default": "./dist/retry-llm/index.cjs"
+      }
+    },
+    "./error-normalize": {
+      "import": {
+        "types": "./dist/error-normalize/index.d.ts",
+        "default": "./dist/error-normalize/index.mjs"
+      },
+      "require": {
+        "types": "./dist/error-normalize/index.d.cts",
+        "default": "./dist/error-normalize/index.cjs"
+      }
+    },
+    "./cache-key": {
+      "import": {
+        "types": "./dist/cache-key/index.d.ts",
+        "default": "./dist/cache-key/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cache-key/index.d.cts",
+        "default": "./dist/cache-key/index.cjs"
+      }
+    },
+    "./stream-tools": {
+      "import": {
+        "types": "./dist/stream-tools/index.d.ts",
+        "default": "./dist/stream-tools/index.mjs"
+      },
+      "require": {
+        "types": "./dist/stream-tools/index.d.cts",
+        "default": "./dist/stream-tools/index.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
-      "tool-schema": ["./dist/tool-schema/index.d.cts"],
-      "prompt-safe": ["./dist/prompt-safe/index.d.cts"],
-      "cost-guard": ["./dist/cost-guard/index.d.cts"],
-      "struct-out": ["./dist/struct-out/index.d.cts"],
-      "context-trim": ["./dist/context-trim/index.d.cts"]
+      "tool-schema":      ["./dist/tool-schema/index.d.cts"],
+      "prompt-safe":      ["./dist/prompt-safe/index.d.cts"],
+      "cost-guard":       ["./dist/cost-guard/index.d.cts"],
+      "struct-out":       ["./dist/struct-out/index.d.cts"],
+      "context-trim":     ["./dist/context-trim/index.d.cts"],
+      "retry-llm":        ["./dist/retry-llm/index.d.cts"],
+      "error-normalize":  ["./dist/error-normalize/index.d.cts"],
+      "cache-key":        ["./dist/cache-key/index.d.cts"],
+      "stream-tools":     ["./dist/stream-tools/index.d.cts"]
     }
   },
   "files": ["dist", "README.md", "LICENSE"],
