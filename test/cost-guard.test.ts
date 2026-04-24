@@ -129,6 +129,49 @@ describe('costGuard.check', () => {
   })
 })
 
+describe('costGuard — input validation (prevents session poisoning)', () => {
+  it('record() throws TypeError on NaN tokens', () => {
+    const g = costGuard({ model: 'gpt-5' })
+    expect(() => g.record(NaN, 100)).toThrow(TypeError)
+    expect(() => g.record(100, NaN)).toThrow(TypeError)
+  })
+
+  it('record() throws TypeError on Infinity', () => {
+    const g = costGuard({ model: 'gpt-5' })
+    expect(() => g.record(Infinity, 100)).toThrow(TypeError)
+  })
+
+  it('record() throws RangeError on negative tokens', () => {
+    const g = costGuard({ model: 'gpt-5' })
+    expect(() => g.record(-1, 100)).toThrow(RangeError)
+    expect(() => g.record(100, -1)).toThrow(RangeError)
+  })
+
+  it('failed record does not poison session totals', () => {
+    const g = costGuard({ model: 'gpt-5' })
+    g.record(100, 50)
+    try { g.record(NaN, 10) } catch { /* expected */ }
+    const s = g.summary()
+    expect(s.calls).toBe(1)
+    expect(s.totalInputTokens).toBe(100)
+    expect(Number.isFinite(s.spent)).toBe(true)
+  })
+
+  it('costGuard() throws on negative assumedOutputTokens', () => {
+    expect(() => costGuard({ model: 'gpt-5', assumedOutputTokens: -100 })).toThrow(RangeError)
+  })
+
+  it('costGuard() throws on NaN assumedOutputTokens', () => {
+    expect(() => costGuard({ model: 'gpt-5', assumedOutputTokens: NaN })).toThrow(RangeError)
+  })
+
+  it('estimate produces non-negative cost', () => {
+    const g = costGuard({ model: 'gpt-5' })
+    const est = g.estimate('hello')
+    expect(est.estimatedCost).toBeGreaterThanOrEqual(0)
+  })
+})
+
 describe('costGuard.record + summary', () => {
   it('tracks calls and token totals', () => {
     const guard = costGuard({ model: 'gpt-5' })

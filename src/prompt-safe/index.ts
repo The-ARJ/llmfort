@@ -76,6 +76,7 @@ const PII_REDACT_MAP: Record<string, string> = {
   ssn:         '[REDACTED_SSN]',
   credit_card: '[REDACTED_CC]',
   ipv4:        '[REDACTED_IP]',
+  ipv6:        '[REDACTED_IP]',
   passport:    '[REDACTED_PASSPORT]',
   api_key:     '[REDACTED_API_KEY]',
   jwt:         '[REDACTED_JWT]',

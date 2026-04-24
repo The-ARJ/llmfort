@@ -24,7 +24,10 @@ export function toolSchema<P extends Provider = 'generic'>(
   meta: ToolMeta,
   provider?: P,
 ): ToolSchemaResult<P> {
-  const name = meta.name ?? 'tool'
+  // Fall back on null, undefined, empty, or whitespace-only names — OpenAI and
+  // Anthropic both reject empty tool names, so returning "" would produce an
+  // envelope the provider won't accept.
+  const name = meta.name && meta.name.trim() ? meta.name : 'tool'
   const parameters = buildParameterSchema(meta)
   const p = (provider ?? 'generic') as Provider
 

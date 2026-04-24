@@ -108,6 +108,26 @@ describe('toolSchema — edge cases', () => {
     expect(schema.function.name).toBe('tool')
   })
 
+  it('defaults name to "tool" when empty string is passed', () => {
+    // OpenAI and Anthropic both reject empty tool names.
+    const schema = toolSchema({ name: '', description: 'x', params: {} }, 'openai')
+    expect(schema.function.name).toBe('tool')
+  })
+
+  it('defaults name to "tool" when whitespace-only', () => {
+    const schema = toolSchema({ name: '   ', description: 'x', params: {} }, 'anthropic')
+    expect(schema.name).toBe('tool')
+  })
+
+  it('unknown provider falls back to generic shape (runtime safety)', () => {
+    // TypeScript rejects this at compile time; at runtime we default gracefully
+    // rather than throw, so JS consumers don't hit an opaque error.
+    const schema = toolSchema({ description: 'x', params: {} }, 'mystery' as any) as any
+    expect(schema.name).toBe('tool')
+    expect(schema.parameters).toBeDefined()
+    expect(schema.parameters.additionalProperties).toBe(false)
+  })
+
   it('handles empty params', () => {
     const schema = toolSchema({ description: 'no params', params: {} }, 'openai')
     expect(schema.function.parameters.properties).toEqual({})

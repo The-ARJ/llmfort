@@ -102,10 +102,33 @@ export const PII_PATTERNS: Pattern[] = [
   {
     type: 'pii',
     label: 'credit_card',
+    // Digits only — matches bare card numbers like 4111111111111111.
     regex: /\b(?:4\d{12}(?:\d{3})?|5[1-5]\d{14}|3[47]\d{13}|3(?:0[0-5]|[68]\d)\d{11}|6(?:011|5\d{2})\d{12})\b/g,
     validate: (m) => luhnValid(m),
   },
+  {
+    type: 'pii',
+    label: 'credit_card',
+    // Group-separated form (most common on receipts/emails): 4111 1111 1111 1111
+    // or 4111-1111-1111-1111. Covers 13-/14-/15-/16-digit lengths across the
+    // major issuers, then Luhn-validates the concatenated digits.
+    regex: /\b(?:\d[ \-]?){12,18}\d\b/g,
+    validate: (m) => {
+      const digits = m.replace(/\D/g, '')
+      if (digits.length < 13 || digits.length > 19) return false
+      // Has to actually have a separator or it'd duplicate the bare-digit rule.
+      if (!/[ \-]/.test(m)) return false
+      return luhnValid(digits)
+    },
+  },
   { type: 'pii', label: 'ipv4',         regex: /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g },
+  // IPv6 — covers full, compressed (::), and mapped (::ffff:1.2.3.4) forms.
+  // Requires at least one colon-pair to rule out single-group hex IDs.
+  {
+    type: 'pii',
+    label: 'ipv6',
+    regex: /\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}|\b(?:[0-9a-fA-F]{1,4}:){1,7}:/g,
+  },
   // Passport: require the word "passport" nearby to avoid catching SKUs / invoice numbers.
   {
     type: 'pii',
@@ -122,6 +145,9 @@ export const PII_PATTERNS: Pattern[] = [
     label: 'api_key',
     regex: /\b(sk-ant-[A-Za-z0-9_\-]{20,}|sk-proj-[A-Za-z0-9_\-]{20,}|sk-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9\-_]{35}|AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{36,}|xox[baprs]-[A-Za-z0-9\-]{10,})\b/g,
   },
-  // JWT (header.payload.signature, all base64url)
-  { type: 'pii', label: 'jwt',          regex: /\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b/g },
+  // JWT (header.payload.signature, all base64url).
+  // Real JWTs have an encoded JSON header (~20+ chars), a non-trivial payload,
+  // and an HMAC/ECDSA signature (~20+ chars). Require realistic minimums so
+  // placeholders like "eyJabc.def.ghi" don't false-positive.
+  { type: 'pii', label: 'jwt',          regex: /\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b/g },
 ]

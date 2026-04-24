@@ -1,19 +1,20 @@
 # @the-arj/llmfort
 
-> Fortify your LLM calls. Zero-dependency Node.js toolkit for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, and pre-call cost/budget guardrails.
+> Fortify your LLM calls. Zero-dependency Node.js toolkit for provider-agnostic tool/function-calling schemas, prompt-injection + PII scanning, structured JSON output with repair, and pre-call cost/budget guardrails.
 
-Three focused modules, zero runtime dependencies, full TypeScript types, ESM + CJS.
+Four focused modules, zero runtime dependencies, full TypeScript types, ESM + CJS.
 Built for the 2026 model landscape: **GPT-5**, **Claude 4.7**, **Gemini 3**, **DeepSeek V3.2**, **Llama 4**, **Mistral**, and any OpenAPI-compatible LLM.
 
-`llmfort` sits between your app code and whichever LLM SDK you use. It won't stream, it won't route, it won't call APIs for you — it just fortifies the three surfaces provider SDKs leave exposed: **schema shape**, **prompt safety**, and **spend**.
+`llmfort` sits between your app code and whichever LLM SDK you use. It won't stream, it won't route, it won't call APIs for you — it fortifies the four surfaces provider SDKs leave exposed: **schema shape**, **prompt safety**, **structured output**, and **spend**.
 
 ```ts
 // Root import (convenient)
-import { toolSchema, promptSafe, costGuard } from '@the-arj/llmfort'
+import { toolSchema, promptSafe, costGuard, structOut } from '@the-arj/llmfort'
 
 // Or import the one module you need (smaller bundle)
 import { toolSchema } from '@the-arj/llmfort/tool-schema'
 import { promptSafe } from '@the-arj/llmfort/prompt-safe'
+import { structOut } from '@the-arj/llmfort/struct-out'
 import { costGuard } from '@the-arj/llmfort/cost-guard'
 ```
 
@@ -35,6 +36,7 @@ Requires **Node.js ≥ 18**. Works from both ESM and CJS.
 |---|---|---|
 | One tool definition that works on OpenAI, Anthropic, Gemini | `zod-to-json-schema`, `ai` SDK, provider SDKs | Each SDK emits only its own format. This package emits all three envelopes from a single metadata object, with `additionalProperties: false` for strict-mode compatibility. |
 | Block prompt injection / PII before it reaches the model | Python's `llm-guard` / `presidio` | Pure-JS, offline, zero-dep, multilingual. No HTTP, no telemetry, no account. |
+| Turn a noisy LLM response into a validated, typed object | Hand-rolled JSON.parse + Zod + retry loop in every project | Extraction, lenient parse, truncation repair, validation, and a surgical repair prompt loop — with any validator (Zod, Valibot, ArkType, AJV, plain JSON Schema). |
 | Hard stop if a call would blow the budget | `tiktoken`, `gpt-tokenizer`, `llm-cost` | Those count tokens. This **enforces** per-call and session budgets with a typed error, and tracks real spend after each call. |
 
 ---
@@ -114,6 +116,86 @@ Notable hardening vs. naive regex scanners:
 
 ---
 
+### `struct-out` — Reliable structured JSON from any LLM
+
+Most "just ask the model for JSON" calls fail 2–15% of the time in production: markdown fences around the object, extra fields the schema didn't ask for, a string where a number should be, truncation mid-brace, prose instead of JSON. `struct-out` handles every one of those without you writing the same brittle extractor–parser–validator–retry loop in every project.
+
+```ts
+import { structOut } from '@the-arj/llmfort/struct-out'
+import { z } from 'zod'  // or Valibot, ArkType, AJV, or a plain JSON Schema object
+
+const Review = z.object({
+  title:  z.string(),
+  score:  z.number().min(0).max(10),
+  reason: z.string(),
+})
+
+const result = await structOut({
+  raw: llmResponseString,   // whatever came back from the model
+  schema: Review,
+  repair: async ({ prompt }) => {
+    // Your LLM call — llmfort just hands you the surgical fix prompt.
+    const { content } = await openai.chat.completions.create({
+      model: 'gpt-5',
+      messages: [{ role: 'user', content: prompt }],
+    })
+    return content
+  },
+  maxRetries: 2,
+})
+
+if (result.ok) {
+  console.log(result.data.title, result.data.score)
+} else {
+  console.error(result.error.kind, result.error.validationError)
+}
+```
+
+**Pipeline** — every stage is a pure function you can use on its own:
+
+1. **Extract** — finds JSON whether it's in ` ```json ` fences, `<json>` tags, after a preamble, as one of several blocks, or bare. Ranks candidates, picks the most likely.
+2. **Parse** — strict `JSON.parse` first; falls back to lenient pass that recovers from trailing commas, single quotes, `//` / `/* */` comments, smart quotes, unquoted keys. If the string looks truncated, closes open brackets in correct nesting order.
+3. **Validate** — duck-typed adapter. Works with anything that has `.safeParse()` (Zod, Valibot), `.parse()` (ArkType), `.validate()` (AJV), or a plain JSON Schema object.
+4. **Repair** — if validation fails, builds a surgical fix prompt (*"field `score`: expected number 0–10, got string 'high'"*) and calls your `repair` callback. Retries up to `maxRetries`.
+5. **Fallback** — `partial: 'return'` salvages fields that validated; `'null'` returns null; `'throw'` (default) throws `StructOutError` with full attempt history.
+
+**Sync helpers** (no network, no callback):
+
+```ts
+structOut.extract(raw)                     // string | null — just the extraction
+structOut.parse(raw)                        // unknown — extract + lenient parse
+structOut.validate(obj, schema)             // ValidationResult — validate an object you already have
+structOut.parseSafe(raw, schema)            // full sync pipeline, no repair. Returns { ok, data/error }
+```
+
+**Works with any validator you already have:**
+
+```ts
+// Zod (safeParse)
+const schema = z.object({ title: z.string(), score: z.number() })
+
+// ArkType (throw-style parse)
+const schema = type({ title: 'string', score: 'number' })
+
+// AJV (validate + errors)
+const schema = { validate: ajv.compile({ type: 'object', ... }), errors: null }
+
+// Plain JSON Schema — zero dependencies
+const schema = {
+  type: 'object',
+  required: ['title', 'score'],
+  additionalProperties: false,
+  properties: {
+    title: { type: 'string' },
+    score: { type: 'number', minimum: 0, maximum: 10 },
+  },
+}
+```
+
+The built-in JSON Schema checker covers what LLMs actually emit (`type`, `required`, `properties`, `items`, `enum`, `minimum`/`maximum`, `additionalProperties`). For full JSON Schema support, pass an AJV instance.
+
+---
+
 ### `cost-guard` — Pre-call cost estimation and budget enforcement
 
 ```ts
@@ -169,34 +251,56 @@ Token estimation is model-aware: Claude uses a denser 3.5 chars/token heuristic 
 
 ## End-to-end example
 
+All four modules working together — scan the input, enforce budget, call the model, structure the output:
+
 ```ts
-import { promptSafe, costGuard } from '@the-arj/llmfort'
+import { promptSafe, costGuard, structOut } from '@the-arj/llmfort'
 import Anthropic from '@anthropic-ai/sdk'
+import { z } from 'zod'
+
+const Review = z.object({
+  title:  z.string(),
+  score:  z.number().min(0).max(10),
+  reason: z.string(),
+})
 
 const guard  = costGuard({ model: 'claude-sonnet-4-6', budget: { session: 1.00 } })
 const claude = new Anthropic()
 
-async function chat(userMessage: string) {
+async function reviewRequest(userMessage: string) {
   // 1. Block injection / jailbreak / PII before it reaches Claude
   promptSafe.assert(userMessage)
 
   // 2. Enforce cost budget before the API call
   await guard.check(userMessage)
 
-  // 3. Call Claude
-  const res = await claude.messages.create({
+  const call = (prompt: string) => claude.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 1024,
-    messages: [{ role: 'user', content: userMessage }],
+    messages: [{ role: 'user', content: prompt }],
   })
 
-  // 4. Record real usage so the session budget stays accurate
+  // 3. Call Claude
+  const res = await call(userMessage)
   guard.record(res.usage.input_tokens, res.usage.output_tokens)
-  return res.content[0]
+
+  // 4. Structure the output, repairing if the model returned malformed JSON.
+  const result = await structOut({
+    raw: (res.content[0] as { text: string }).text,
+    schema: Review,
+    repair: async ({ prompt }) => {
+      const fix = await call(prompt)
+      guard.record(fix.usage.input_tokens, fix.usage.output_tokens)
+      return (fix.content[0] as { text: string }).text
+    },
+    maxRetries: 2,
+  })
+
+  return result.ok ? result.data : null
 }
 ```
 
-Swap the SDK and model name — the safety + cost layer is identical for GPT-5, Gemini 3, DeepSeek, or any other provider.
+Swap the SDK and model name — the four layers are identical for GPT-5, Gemini 3, DeepSeek, or any other provider.
 
 ---
 
@@ -222,6 +326,23 @@ Swap the SDK and model name — the safety + cost layer is identical for GPT-5, 
 Returns `{ safe: boolean, violations: Violation[] }`.
 - `promptSafe.redact(text)` — PII-only redaction (injection/jailbreak text is not removed — removal changes meaning).
 - `promptSafe.assert(text, options?)` — throws `PromptViolationError` if unsafe.
+
+### `structOut(options)`
+
+| Option | Type | Description |
+|---|---|---|
+| `raw` | `string` | The raw LLM response to structure |
+| `schema` | `Validator<T>` | Zod, Valibot, ArkType, AJV, or plain JSON Schema object |
+| `repair` | `(ctx) => Promise<string>` | Optional callback — called on validation failure with a surgical fix prompt; must return the model's new raw response |
+| `maxRetries` | `number` | Max repair iterations (default `2`) |
+| `partial` | `'throw' \| 'null' \| 'return'` | Behavior on exhausted retries (default `'throw'`) |
+| `signal` | `AbortSignal` | Aborts the repair loop |
+| `onAttempt` | `(info) => void` | Observability hook, fires after every attempt |
+
+Returns `StructOutResult<T>`: `{ ok: true, data, attempts }` | `{ ok: false, error, attempts, data?/partial? }`.
+
+Sync helpers: `structOut.extract`, `structOut.parse`, `structOut.validate`, `structOut.parseSafe`.
+Errors: `StructOutError` with `.kind` of `'no_json' | 'parse' | 'validation' | 'exhausted' | 'aborted'`.
 
 ### `costGuard(options)`
 

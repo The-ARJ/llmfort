@@ -36,3 +36,18 @@ export {
   type CostEstimate,
   type SessionSummary,
 } from './cost-guard/index.js'
+
+export {
+  structOut,
+  StructOutError,
+  type AttemptInfo,
+  type JsonSchemaValidator,
+  type PartialMode,
+  type RepairContext,
+  type StructOutOptions,
+  type StructOutResult,
+  type StructOutErrorKind,
+  type ValidationIssue,
+  type ValidationResult,
+  type Validator,
+} from './struct-out/index.js'

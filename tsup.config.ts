@@ -6,6 +6,7 @@ export default defineConfig({
     'tool-schema/index': 'src/tool-schema/index.ts',
     'prompt-safe/index': 'src/prompt-safe/index.ts',
     'cost-guard/index':  'src/cost-guard/index.ts',
+    'struct-out/index':  'src/struct-out/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,

@@ -79,7 +79,14 @@ export interface CostGuard {
  * console.log(guard.summary())
  */
 export function costGuard(options: CostGuardOptions): CostGuard {
-  const { model, budget = {}, assumedOutputTokens = 256 } = options
+  const { model, budget = {} } = options
+  let { assumedOutputTokens = 256 } = options
+  if (!Number.isFinite(assumedOutputTokens) || assumedOutputTokens < 0) {
+    throw new RangeError(
+      `costGuard: assumedOutputTokens must be a finite non-negative number, got ${assumedOutputTokens}`,
+    )
+  }
+  assumedOutputTokens = Math.floor(assumedOutputTokens)
   const price = getPrice(model)
 
   let totalInput  = 0
@@ -120,6 +127,18 @@ export function costGuard(options: CostGuardOptions): CostGuard {
     },
 
     record(inputTokens, outputTokens) {
+      // Reject NaN, Infinity, and negatives — one bad record poisons the entire
+      // session (NaN propagates through all math, disabling budget enforcement).
+      if (!Number.isFinite(inputTokens) || !Number.isFinite(outputTokens)) {
+        throw new TypeError(
+          `costGuard.record: tokens must be finite numbers, got (${inputTokens}, ${outputTokens})`,
+        )
+      }
+      if (inputTokens < 0 || outputTokens < 0) {
+        throw new RangeError(
+          `costGuard.record: tokens must be >= 0, got (${inputTokens}, ${outputTokens})`,
+        )
+      }
       totalInput  += inputTokens
       totalOutput += outputTokens
       calls       += 1

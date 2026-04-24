@@ -160,9 +160,41 @@ describe('promptSafe — new PII kinds', () => {
     expect(r.violations.some(v => v.label === 'api_key')).toBe(true)
   })
 
-  it('detects JWTs', () => {
-    const r = promptSafe('token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.abc_123-xyz here')
+  it('detects real-shaped JWTs', () => {
+    const r = promptSafe('token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0aaaaaaaa.abc_123-xyzabc1234 here')
     expect(r.violations.some(v => v.label === 'jwt')).toBe(true)
+  })
+
+  it('does NOT false-positive on short 3-segment base64-ish placeholders', () => {
+    // Bearer-token-looking placeholder; not a real JWT.
+    const r = promptSafe('Authorization: Bearer eyJabc.def.ghi extra')
+    expect(r.violations.some(v => v.label === 'jwt')).toBe(false)
+  })
+
+  it('detects credit card with space separators (Luhn-valid)', () => {
+    const r = promptSafe('pay with 4111 1111 1111 1111 please')
+    expect(r.violations.some(v => v.label === 'credit_card')).toBe(true)
+  })
+
+  it('detects credit card with dash separators (Luhn-valid)', () => {
+    const r = promptSafe('card 4111-1111-1111-1111')
+    expect(r.violations.some(v => v.label === 'credit_card')).toBe(true)
+  })
+
+  it('does NOT flag Luhn-invalid spaced digits', () => {
+    // 4111 1111 1111 1112 would be invalid Luhn.
+    const r = promptSafe('reference 4111 1111 1111 1112')
+    expect(r.violations.some(v => v.label === 'credit_card')).toBe(false)
+  })
+
+  it('detects IPv6 full form', () => {
+    const r = promptSafe('server 2001:0db8:85a3:0000:0000:8a2e:0370:7334')
+    expect(r.violations.some(v => v.label === 'ipv6')).toBe(true)
+  })
+
+  it('detects IPv6 compressed form', () => {
+    const r = promptSafe('localhost ::1 and 2001:db8::1')
+    expect(r.violations.some(v => v.label === 'ipv6')).toBe(true)
   })
 })
 
