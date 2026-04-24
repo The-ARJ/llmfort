@@ -1,0 +1,68 @@
+{
+  "name": "@the-arj/ai-kit",
+  "version": "0.1.0",
+  "description": "AI toolkit for Node.js — tool schema generation, prompt safety, and cost guardrails.",
+  "keywords": [
+    "ai", "llm", "openai", "anthropic", "gemini",
+    "tool-calling", "function-calling", "json-schema",
+    "prompt-injection", "pii", "cost-guard", "token-budget",
+    "prompt-safe", "tool-schema", "typescript"
+  ],
+  "author": "The-ARJ",
+  "license": "MIT",
+  "exports": {
+    "./tool-schema": {
+      "import": {
+        "types": "./dist/tool-schema/index.d.mts",
+        "default": "./dist/tool-schema/index.mjs"
+      },
+      "require": {
+        "types": "./dist/tool-schema/index.d.ts",
+        "default": "./dist/tool-schema/index.cjs"
+      }
+    },
+    "./prompt-safe": {
+      "import": {
+        "types": "./dist/prompt-safe/index.d.mts",
+        "default": "./dist/prompt-safe/index.mjs"
+      },
+      "require": {
+        "types": "./dist/prompt-safe/index.d.ts",
+        "default": "./dist/prompt-safe/index.cjs"
+      }
+    },
+    "./cost-guard": {
+      "import": {
+        "types": "./dist/cost-guard/index.d.mts",
+        "default": "./dist/cost-guard/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cost-guard/index.d.ts",
+        "default": "./dist/cost-guard/index.cjs"
+      }
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": { "node": ">=18" },
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-ARJ/ai-kit.git"
+  },
+  "bugs": { "url": "https://github.com/The-ARJ/ai-kit/issues" },
+  "homepage": "https://github.com/The-ARJ/ai-kit#readme"
+}
