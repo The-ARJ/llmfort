@@ -3,10 +3,13 @@
   "version": "0.1.0",
   "description": "AI toolkit for Node.js — tool schema generation, prompt safety, and cost guardrails.",
   "keywords": [
-    "ai", "llm", "openai", "anthropic", "gemini",
+    "ai", "llm", "typescript",
+    "claude", "chatgpt", "gpt-4o", "gpt-4o-mini",
+    "gemini", "deepseek", "llama", "groq", "mistral",
     "tool-calling", "function-calling", "json-schema",
-    "prompt-injection", "pii", "cost-guard", "token-budget",
-    "prompt-safe", "tool-schema", "typescript"
+    "prompt-injection", "prompt-safety", "pii", "jailbreak",
+    "cost-guard", "token-budget", "token-cost",
+    "prompt-safe", "tool-schema", "ai-safety"
   ],
   "author": "The-ARJ",
   "license": "MIT",
