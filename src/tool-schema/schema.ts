@@ -1,4 +1,4 @@
-import type { ParameterSchema, JsonSchemaProperty, ParamMeta, ToolMeta } from './types.js'
+import type { ParameterSchema, JsonSchemaProperty, ParamMeta, ToolMeta, JsonSchemaType } from './types.js'
 
 function metaToProperty(meta: ParamMeta): JsonSchemaProperty {
   const prop: JsonSchemaProperty = { type: meta.type }
@@ -20,6 +20,27 @@ export function buildParameterSchema(toolMeta: ToolMeta): ParameterSchema {
     if (meta.required !== false) required.push(name)
   }
 
-  // Required by OpenAI strict mode + Gemini responseSchema; recommended on Anthropic.
   return { type: 'object', properties, required, additionalProperties: false }
+}
+
+/** Rewrite a schema for OpenAI strict mode: every property in `required`, optionals widened with `null`. */
+export function toOpenAIStrict(schema: ParameterSchema): ParameterSchema {
+  const allKeys = Object.keys(schema.properties)
+  const wasRequired = new Set(schema.required)
+
+  const properties: Record<string, JsonSchemaProperty> = {}
+  for (const [name, prop] of Object.entries(schema.properties)) {
+    properties[name] = wasRequired.has(name) ? prop : widenWithNull(prop)
+  }
+
+  return { type: 'object', properties, required: allKeys, additionalProperties: false }
+}
+
+function widenWithNull(prop: JsonSchemaProperty): JsonSchemaProperty {
+  if (Array.isArray(prop.type)) {
+    if (prop.type.includes('null')) return prop
+    return { ...prop, type: [...prop.type, 'null' as JsonSchemaType] }
+  }
+  if (prop.type === 'null') return prop
+  return { ...prop, type: [prop.type, 'null' as JsonSchemaType] }
 }

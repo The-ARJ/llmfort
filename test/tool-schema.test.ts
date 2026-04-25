@@ -24,10 +24,17 @@ describe('toolSchema — openai', () => {
     expect(schema.function.parameters.properties.city.type).toBe('string')
   })
 
-  it('marks required params correctly', () => {
+  it('forces every property into required (strict-mode contract)', () => {
     const schema = toolSchema(weatherMeta, 'openai')
     expect(schema.function.parameters.required).toContain('city')
-    expect(schema.function.parameters.required).not.toContain('unit')
+    expect(schema.function.parameters.required).toContain('unit')
+    expect(schema.function.parameters.properties.unit?.type).toEqual(['string', 'null'])
+  })
+
+  it('Anthropic still uses required-list for optional params', () => {
+    const schema = toolSchema(weatherMeta, 'anthropic')
+    expect(schema.input_schema.required).toContain('city')
+    expect(schema.input_schema.required).not.toContain('unit')
   })
 
   it('includes enum values', () => {
@@ -75,13 +82,18 @@ describe('toolSchemaAll', () => {
     expect(all.generic.parameters).toBeDefined()
   })
 
-  it('all formats share the same parameter properties', () => {
+  it('Anthropic and Gemini share the same parameter properties', () => {
     const all = toolSchemaAll(weatherMeta)
-    const openaiProps = all.openai.function.parameters.properties
     const anthropicProps = all.anthropic.input_schema.properties
     const geminiProps = all.gemini.functionDeclarations[0]!.parameters.properties
-    expect(openaiProps).toEqual(anthropicProps)
     expect(anthropicProps).toEqual(geminiProps)
+  })
+
+  it('OpenAI widens optional params with null and forces all keys into required', () => {
+    const all = toolSchemaAll(weatherMeta)
+    const params = all.openai.function.parameters
+    expect(params.required.sort()).toEqual(Object.keys(params.properties).sort())
+    expect(params.properties.unit?.type).toEqual(['string', 'null'])
   })
 })
 

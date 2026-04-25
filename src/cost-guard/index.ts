@@ -10,28 +10,18 @@ export type { ModelPrice, UsageBreakdown }
 export { getPrice, estimateTokens, calcCost }
 
 export interface Budget {
-  /** Max USD per single call (estimated cost). */
   perCall?: number
-  /** Max USD across the guard instance's lifetime. */
   session?: number
-  /**
-   * Max USD of reasoning-token spend across the session. Reasoning tokens
-   * (o-series, Claude thinking, Gemini thinking) are billed as output and can
-   * be 5-10x the visible output — this is the one budget most users miss.
-   */
+  /** Cap on reasoning-token spend (o-series, Claude thinking). */
   reasoning?: number
 }
 
 export interface CostGuardOptions {
   model: string
   budget?: Budget
-  /** Assumed output tokens when the response isn't available yet. Default 256. */
+  /** Default 256. */
   assumedOutputTokens?: number
-  /**
-   * Assumed reasoning tokens for pre-call estimates. Default 0 (only reasoning-
-   * capable models will blow past this, and users pass `reasoning_effort` in
-   * that case; they can raise this default for those models).
-   */
+  /** Default 0. */
   assumedReasoningTokens?: number
 }
 
@@ -51,13 +41,10 @@ export interface SessionSummary {
   totalCacheHitTokens: number
   totalCacheWriteTokens: number
   spent: number
-  /** Total spent on reasoning tokens alone. */
   reasoningSpent: number
-  /** Total saved (vs uncached rate) from prompt-cache hits. */
+  /** Saved vs uncached rate from prompt-cache hits. */
   cacheSavings: number
-  /** Remaining session budget, or null if none was set. */
   remaining: number | null
-  /** Remaining reasoning-token budget, or null if none was set. */
   reasoningRemaining: number | null
   budget: Budget
 }
@@ -84,8 +71,8 @@ export interface CostGuard {
   check(prompt: string, outputTokens?: number): Promise<CostEstimate>
   /** Estimate cost without enforcing limits. */
   estimate(prompt: string, outputTokens?: number): CostEstimate
-  /** Record actual token usage after a completed call. */
   record(usage: UsageBreakdown): void
+  record(inputTokens: number, outputTokens: number): void
   summary(): SessionSummary
 }
 
@@ -115,7 +102,6 @@ export function costGuard(options: CostGuardOptions): CostGuard {
     cacheHit:   0,
     cacheWrite: 0,
     calls:      0,
-    uncachedInputForSavings: 0, // for cacheSavings calculation
   }
 
   function buildEstimate(prompt: string, outputTokens?: number): CostEstimate {
@@ -186,10 +172,13 @@ export function costGuard(options: CostGuardOptions): CostGuard {
       return est
     },
 
-    record(usage: UsageBreakdown) {
-      // NaN / Infinity / negatives must reject before mutation — a single bad
-      // value would propagate through subsequent arithmetic and silently
-      // disable budget enforcement.
+    record(usageOrInput: UsageBreakdown | number, outputTokens?: number) {
+      const usage: UsageBreakdown = typeof usageOrInput === 'number'
+        ? { input: usageOrInput, output: outputTokens ?? 0 }
+        : usageOrInput
+
+      // NaN / Infinity / negatives reject before mutation; one bad value would
+      // otherwise propagate through arithmetic and silently disable budgets.
       const fields: Array<[keyof UsageBreakdown, number | undefined]> = [
         ['input',      usage.input],
         ['output',     usage.output],

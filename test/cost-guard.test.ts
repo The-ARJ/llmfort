@@ -160,6 +160,20 @@ describe('costGuard.record + summary (new API)', () => {
     expect(s.totalOutputTokens).toBe(500)
   })
 
+  it('record accepts the legacy positional form (0.2.x compatibility)', () => {
+    const g = costGuard({ model: 'gpt-5' })
+    g.record(1000, 500)
+    const s = g.summary()
+    expect(s.calls).toBe(1)
+    expect(s.totalInputTokens).toBe(1000)
+    expect(s.totalOutputTokens).toBe(500)
+  })
+
+  it('legacy positional rejects NaN', () => {
+    const g = costGuard({ model: 'gpt-5' })
+    expect(() => g.record(NaN, 0)).toThrow(TypeError)
+  })
+
   it('tracks reasoning tokens separately', () => {
     const g = costGuard({ model: 'o3' })
     g.record({ input: 100, output: 50, reasoning: 2000 })

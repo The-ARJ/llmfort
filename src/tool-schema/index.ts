@@ -1,4 +1,4 @@
-import { buildParameterSchema } from './schema.js'
+import { buildParameterSchema, toOpenAIStrict } from './schema.js'
 import { lintToolSchema, lintUnknownKeywords } from './lint.js'
 import type {
   Provider, ToolMeta, ToolSchemaResult,
@@ -23,7 +23,7 @@ export function toolSchema<P extends Provider = 'generic'>(
   if (p === 'openai') {
     return {
       type: 'function',
-      function: { name, description: meta.description, parameters },
+      function: { name, description: meta.description, parameters: toOpenAIStrict(parameters) },
     } satisfies OpenAITool as ToolSchemaResult<P>
   }
 

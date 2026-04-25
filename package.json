@@ -1,6 +1,6 @@
 {
   "name": "@the-arj/llmfort",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Fortify your LLM calls — zero-dependency Node.js toolkit for GPT, Claude, and Gemini: tool/function-calling schemas, prompt-injection + PII scanning, structured-JSON output with repair, conversation trimming, cost/budget guardrails, provider-aware 429 retry, error normalization, stable cache keys, and streaming tool-call accumulation.",
   "keywords": [
     "llmfort",

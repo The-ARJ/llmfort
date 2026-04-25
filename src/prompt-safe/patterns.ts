@@ -17,7 +17,10 @@ export const INJECTION_PATTERNS: Pattern[] = [
   { type: 'injection', label: 'override_directive',     regex: /\boverride\s+(previous\s+)?(instructions?|rules|guidelines)\b/i },
   { type: 'injection', label: 'forget_instructions',    regex: /forget\s+(everything|all|previous)\s+(you('ve|\s+have)\s+been\s+told|instructions?|rules)/i },
   { type: 'injection', label: 'prompt_leak',            regex: /\brepeat\s+(your\s+)?(system\s+)?(prompt|instructions?)\b/i },
-  { type: 'injection', label: 'role_switch',            regex: /\b(act|behave|pretend|roleplay)\s+as\s+(if\s+you\s+are|a\s+|an\s+)/i },
+  {
+    type: 'injection', label: 'role_switch',
+    regex: /\b(act\s+as\s+if\s+you\s+(are|were)\b|pretend\s+(you\s+are|to\s+be|that\s+you('re|\s+are))\b|roleplay\s+as\b|(act|behave)\s+as\s+(an?\s+)?(unrestricted|jailbroken|evil|uncensored|developer|admin|god|deceased|dead|grandma|hacker|criminal|malicious|rogue|unfiltered|harmful|nefarious))/i,
+  },
   { type: 'injection', label: 'translate_leak',         regex: /translate\s+(the\s+)?(above|previous|following|everything)\s+(text|content|instructions?|conversation|prompt)/i },
   { type: 'injection', label: 'summarize_instructions', regex: /summarize\s+(your\s+)?(system\s+)?(prompt|instructions?|context|rules)/i },
   // Chat-template token injection (<|im_start|>, <|system|>, <|endoftext|>, [INST], etc.)
