@@ -369,6 +369,66 @@ describe('structOut — repair loop', () => {
 
 // ----- Zod-shape adapter (duck-typed, no zod dep) -----
 
+describe('structOut — Claude pre-fill helper', () => {
+  it('prefillForClaude() returns object directive by default', () => {
+    const pf = structOut.prefillForClaude()
+    expect(pf.prefill).toBe('{')
+    expect(pf.message).toEqual({ role: 'assistant', content: '{' })
+  })
+
+  it('prefillForClaude({kind:"array"}) returns array directive', () => {
+    const pf = structOut.prefillForClaude({ kind: 'array' })
+    expect(pf.prefill).toBe('[')
+    expect(pf.message.content).toBe('[')
+  })
+
+  it('reattach prepends pre-fill when response starts without it', () => {
+    const pf = structOut.prefillForClaude()
+    const raw = '"title":"X","score":5}'
+    expect(pf.reattach(raw)).toBe('{"title":"X","score":5}')
+  })
+
+  it('reattach does NOT double the pre-fill character', () => {
+    const pf = structOut.prefillForClaude()
+    const raw = '{"title":"X","score":5}'
+    expect(pf.reattach(raw)).toBe('{"title":"X","score":5}')
+  })
+
+  it('reattach handles leading whitespace in response', () => {
+    const pf = structOut.prefillForClaude()
+    const raw = '  \n  "title":"X"}'
+    const fixed = pf.reattach(raw)
+    expect(JSON.parse(fixed)).toEqual({ title: 'X' })
+  })
+
+  it('parsePrefilledClaude: one-shot full pipeline', () => {
+    const schema = {
+      type: 'object' as const,
+      required: ['title', 'score'],
+      properties: {
+        title: { type: 'string' as const },
+        score: { type: 'number' as const },
+      },
+    }
+    // Claude's response, as it would come back (pre-fill '{' removed by API).
+    const claudeResponse = '"title":"Reliable","score":9}'
+    const r = structOut.parsePrefilledClaude(claudeResponse, schema)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.data).toEqual({ title: 'Reliable', score: 9 })
+  })
+
+  it('parsePrefilledClaude: array response', () => {
+    const schema = {
+      type: 'array' as const,
+      items: { type: 'string' as const },
+    }
+    const claudeResponse = '"a","b","c"]'
+    const r = structOut.parsePrefilledClaude(claudeResponse, schema, { kind: 'array' })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.data).toEqual(['a', 'b', 'c'])
+  })
+})
+
 describe('structOut validator adapter — safeParse shape', () => {
   const zodLike = {
     safeParse(v: unknown) {

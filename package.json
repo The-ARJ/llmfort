@@ -1,6 +1,6 @@
 {
   "name": "@the-arj/llmfort",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Fortify your LLM calls — zero-dependency Node.js toolkit for GPT, Claude, and Gemini: tool/function-calling schemas, prompt-injection + PII scanning, structured-JSON output with repair, conversation trimming, cost/budget guardrails, provider-aware 429 retry, error normalization, stable cache keys, and streaming tool-call accumulation.",
   "keywords": [
     "llmfort",
@@ -14,10 +14,11 @@
     "jailbreak", "prompt-guard",
     "cost-guard", "token-budget", "llm-cost", "reasoning-tokens",
     "prompt-caching", "cache-key",
-    "structured-output", "json-repair", "json-extract", "llm-json",
+    "structured-output", "json-repair", "json-extract", "llm-json", "claude-prefill",
     "zod", "ajv", "valibot", "arktype",
     "context-trim", "conversation-history", "message-window", "thinking-blocks",
     "rate-limit", "retry", "429", "backoff",
+    "indirect-injection", "rag-security", "schema-lint",
     "streaming", "tool-call-stream", "error-normalize",
     "ai-safety", "ai-security"
   ],

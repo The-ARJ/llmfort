@@ -1,4 +1,5 @@
 import { buildParameterSchema } from './schema.js'
+import { lintToolSchema, lintUnknownKeywords } from './lint.js'
 import type {
   Provider, ToolMeta, ToolSchemaResult,
   OpenAITool, AnthropicTool, GeminiTool, GenericTool,
@@ -6,27 +7,15 @@ import type {
 
 export type { Provider, ToolMeta, ToolSchemaResult, OpenAITool, AnthropicTool, GeminiTool, GenericTool }
 export type { JsonSchemaProperty, JsonSchemaType, ParameterSchema, ParamMeta } from './types.js'
+export { lintToolSchema, lintUnknownKeywords }
+export type { LintWarning, LintResult, LintSeverity } from './lint.js'
 
-/**
- * Generate a provider-specific tool/function-calling schema from a plain
- * metadata object — no compiler plugins, no decorators, no build step required.
- *
- * @example
- * const schema = toolSchema({
- *   description: 'Get current weather',
- *   params: {
- *     city:  { type: 'string', description: 'City name' },
- *     unit:  { type: 'string', enum: ['C', 'F'], required: false },
- *   }
- * }, 'openai')
- */
+/** Generate the provider-specific tool/function-calling envelope for a tool definition. */
 export function toolSchema<P extends Provider = 'generic'>(
   meta: ToolMeta,
   provider?: P,
 ): ToolSchemaResult<P> {
-  // Fall back on null, undefined, empty, or whitespace-only names — OpenAI and
-  // Anthropic both reject empty tool names, so returning "" would produce an
-  // envelope the provider won't accept.
+  // OpenAI and Anthropic reject empty tool names; whitespace-only counts as empty.
   const name = meta.name && meta.name.trim() ? meta.name : 'tool'
   const parameters = buildParameterSchema(meta)
   const p = (provider ?? 'generic') as Provider
@@ -59,10 +48,7 @@ export function toolSchema<P extends Provider = 'generic'>(
   } satisfies GenericTool as ToolSchemaResult<P>
 }
 
-/**
- * Convert a single `toolSchema` result into every provider format at once.
- * Useful when you target multiple providers from the same function definition.
- */
+/** Generate every provider envelope at once. */
 export function toolSchemaAll(meta: ToolMeta): {
   openai: OpenAITool
   anthropic: AnthropicTool
@@ -76,3 +62,9 @@ export function toolSchemaAll(meta: ToolMeta): {
     generic:   toolSchema(meta, 'generic'),
   }
 }
+
+/** Surface per-provider warnings for silent-strip and outright-rejection cases. */
+toolSchema.lint = lintToolSchema
+
+/** Audit for unknown JSON-Schema keywords (typos like `minLenght`). */
+toolSchema.lintUnknown = lintUnknownKeywords

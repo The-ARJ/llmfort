@@ -1,7 +1,4 @@
-/**
- * A single validation problem produced by the validator adapter.
- * Path uses JSON-Pointer-like segments for nested fields (e.g. ['items', '0', 'score']).
- */
+/** A single validation problem. Path uses JSON-Pointer-like segments. */
 export interface ValidationIssue {
   path: string[]
   message: string
@@ -16,9 +13,8 @@ export interface ValidationResult<T> {
 }
 
 /**
- * Validator adapter — anything that matches one of these shapes works.
- * In priority order we try: safeParse (Zod/Valibot), parse (ArkType/throw-style),
- * validate (AJV-style), then treat as a plain JSON Schema object.
+ * Adapter shapes tried in order: `safeParse` (Zod/Valibot), `parse` (ArkType),
+ * `validate` (AJV), then plain JSON Schema.
  */
 export type Validator<T> =
   | { safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: unknown } }
@@ -40,15 +36,13 @@ export interface JsonSchemaValidator {
 }
 
 export interface RepairContext {
-  /** The raw LLM string that failed. */
   raw: string
-  /** Parsed object, if parsing succeeded (validation was what failed). */
+  /** Set if parsing succeeded but validation failed. */
   parsed?: unknown
-  /** Specific validation issues to surface in the repair prompt. */
   issues: ValidationIssue[]
-  /** The fully built repair prompt — pass this (or your own) to your LLM. */
+  /** Pre-built fix prompt; pass to your LLM as-is or wrap with your own framing. */
   prompt: string
-  /** Current attempt index (0-based — first repair call is attempt 1). */
+  /** 1-based: the first repair call is attempt 1. */
   attempt: number
 }
 
@@ -63,42 +57,29 @@ export interface AttemptInfo {
 export type PartialMode = 'return' | 'null' | 'throw'
 
 export interface StructOutOptions<T> {
-  /** Raw LLM response to structure. */
   raw: string
-  /** Any validator shape — Zod, Valibot, ArkType, AJV, or a plain JSON Schema object. */
   schema: Validator<T>
-  /**
-   * Optional async callback the library invokes when validation fails.
-   * Receives a RepairContext with a surgical fix prompt; must return the model's new raw response.
-   * If omitted, no repair is attempted even if `maxRetries > 0`.
-   */
+  /** Async callback invoked on validation failure. Returns the model's new raw response. */
   repair?: (ctx: RepairContext) => Promise<string>
-  /** Max repair iterations. Default 2. */
+  /** Default 2. */
   maxRetries?: number
-  /**
-   * What to do when retries are exhausted:
-   *  - 'throw'  (default): throw StructOutError
-   *  - 'null'  : resolve with { ok:false, data:null, error }
-   *  - 'return': resolve with { ok:false, partial: <best effort object>, error }
-   */
+  /** Behavior when retries are exhausted. Default `'throw'`. */
   partial?: PartialMode
-  /** Abort the repair loop. */
   signal?: AbortSignal
-  /** Observability hook called after every attempt. */
   onAttempt?: (info: AttemptInfo) => void
 }
 
 export type StructOutResult<T> =
-  | { ok: true;  data: T;                      attempts: AttemptInfo[] }
-  | { ok: false; data: null;                   attempts: AttemptInfo[]; error: StructOutError }
+  | { ok: true;  data: T;                          attempts: AttemptInfo[] }
+  | { ok: false; data: null;                       attempts: AttemptInfo[]; error: StructOutError }
   | { ok: false; partial: Record<string, unknown>; attempts: AttemptInfo[]; error: StructOutError }
 
 export type StructOutErrorKind =
-  | 'no_json'     // could not find any JSON in the string
-  | 'parse'       // found JSON but could not parse it even with repair
-  | 'validation'  // parsed but failed validation (only used when repair is disabled or null mode)
-  | 'exhausted'   // ran out of retries
-  | 'aborted'     // AbortSignal fired, or repair callback threw
+  | 'no_json'
+  | 'parse'
+  | 'validation'
+  | 'exhausted'
+  | 'aborted'
 
 export class StructOutError extends Error {
   readonly kind: StructOutErrorKind

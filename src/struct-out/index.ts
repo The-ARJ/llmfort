@@ -25,18 +25,11 @@ export type {
 } from './types.js'
 export { StructOutError } from './types.js'
 
-/**
- * Turn a raw LLM response string into a validated, typed object.
- *
- * Pipeline: extract JSON from wrappers → lenient parse → validate → (optional) repair loop.
- *
- * @example
- * const { ok, data } = await structOut({
- *   raw: llmResponse,
- *   schema: MyZodSchema,
- *   repair: async ({ prompt }) => (await llm.chat([...history, { role:'user', content: prompt }])).text,
- * })
- */
+import { prefillForClaude, parsePrefilledClaude, type PrefillDirective } from './prefill.js'
+export { prefillForClaude, parsePrefilledClaude }
+export type { PrefillDirective }
+
+/** Turn a raw LLM response into a validated, typed object via extract → parse → validate → optional repair. */
 export async function structOut<T>(options: StructOutOptions<T>): Promise<StructOutResult<T>> {
   const {
     raw,
@@ -164,9 +157,7 @@ export async function structOut<T>(options: StructOutOptions<T>): Promise<Struct
   }) as StructOutResult<T>
 }
 
-// --- Sync helpers (no network, no callback) ---
-
-/** Extract the most likely JSON region from a raw string. Returns null if none found. */
+/** Find the most likely JSON region in a raw string. Returns null if none found. */
 structOut.extract = function (raw: string): string | null {
   return extractFn(raw)
 }
@@ -180,15 +171,12 @@ structOut.parse = function (raw: string): unknown {
   return p.value
 }
 
-/** Validate an already-parsed value. Useful if you got the object from elsewhere. */
+/** Validate an already-parsed value. */
 structOut.validate = function <T>(value: unknown, schema: Validator<T>) {
   return validateFn<T>(value, schema)
 }
 
-/**
- * Full sync pipeline without repair. Returns ok=true/false.
- * Use when you want one-shot semantics and no network calls.
- */
+/** Full sync pipeline without repair. Never makes network calls. */
 structOut.parseSafe = function <T>(raw: string, schema: Validator<T>): StructOutResult<T> {
   const extracted = extractFn(raw)
   if (extracted === null) {
@@ -222,7 +210,11 @@ structOut.parseSafe = function <T>(raw: string, schema: Validator<T>): StructOut
   }
 }
 
-// --- internals ---
+/** Build a Claude pre-fill directive for guaranteed JSON output. */
+structOut.prefillForClaude = prefillForClaude
+
+/** Re-attach the Claude pre-fill character and parse in a single call. */
+structOut.parsePrefilledClaude = parsePrefilledClaude
 
 function shouldRetry(attempt: number, maxRetries: number, repair: unknown): boolean {
   return attempt < maxRetries && typeof repair === 'function'
@@ -269,15 +261,9 @@ function finish(p: FinishParams) {
   })
   if (p.partial === 'throw') throw error
   if (p.partial === 'null') return { ok: false, data: null, attempts: p.attempts, error }
-  // 'return': hand back the best-effort parsed object, if any, so callers can salvage valid fields.
-  const salvaged = salvagePartial(p.lastParsed, p.lastIssues)
-  return { ok: false, partial: salvaged, attempts: p.attempts, error }
+  return { ok: false, partial: salvagePartial(p.lastParsed, p.lastIssues), attempts: p.attempts, error }
 }
 
-/**
- * Given a parsed object and its validation issues, return an object containing
- * only the fields that did NOT have issues at their exact path.
- */
 function salvagePartial(parsed: unknown, issues: ValidationIssue[]): Record<string, unknown> {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
   const bad = new Set(issues.map(i => i.path[0]).filter(Boolean) as string[])

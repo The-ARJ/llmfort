@@ -22,7 +22,7 @@ export interface ParameterSchema {
   additionalProperties?: boolean
 }
 
-/** Output shape for OpenAI / Groq / Mistral tool calling */
+/** OpenAI / OpenAI-compatible tool envelope. */
 export interface OpenAITool {
   type: 'function'
   function: {
@@ -32,14 +32,14 @@ export interface OpenAITool {
   }
 }
 
-/** Output shape for Anthropic Claude tool calling */
+/** Anthropic tool envelope. */
 export interface AnthropicTool {
   name: string
   description: string
   input_schema: ParameterSchema
 }
 
-/** Output shape for Google Gemini function calling */
+/** Gemini functionDeclarations envelope. */
 export interface GeminiTool {
   functionDeclarations: Array<{
     name: string
@@ -48,7 +48,7 @@ export interface GeminiTool {
   }>
 }
 
-/** Generic / raw schema (no provider wrapper) */
+/** Unwrapped schema, no provider envelope. */
 export interface GenericTool {
   name: string
   description: string
@@ -61,7 +61,6 @@ export type ToolSchemaResult<P extends Provider> =
   P extends 'gemini'    ? GeminiTool    :
   GenericTool
 
-/** Decorator/annotation metadata for a parameter */
 export interface ParamMeta {
   type: JsonSchemaType | JsonSchemaType[]
   description?: string

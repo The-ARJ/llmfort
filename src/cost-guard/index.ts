@@ -80,51 +80,15 @@ export class CostLimitError extends Error {
 }
 
 export interface CostGuard {
-  /**
-   * Estimate cost for a prompt and throw `CostLimitError` if it exceeds budget.
-   * Call before every LLM request.
-   */
+  /** Estimate cost and throw `CostLimitError` if over budget. */
   check(prompt: string, outputTokens?: number): Promise<CostEstimate>
-
   /** Estimate cost without enforcing limits. */
   estimate(prompt: string, outputTokens?: number): CostEstimate
-
-  /**
-   * Record actual token usage after a completed call. Pass the usage object
-   * from the API response. Provider-specific field names are in the adapter
-   * snippets further down in this file.
-   */
+  /** Record actual token usage after a completed call. */
   record(usage: UsageBreakdown): void
-
-  /** Cumulative session statistics. */
   summary(): SessionSummary
 }
 
-/**
- * Create a cost guard for a specific model.
- *
- * @example
- * const guard = costGuard({ model: 'claude-opus-4-7', budget: { session: 5.00, reasoning: 2.00 } })
- *
- * await guard.check(prompt)
- * const res = await claude.messages.create({ ... })
- *
- * // Claude: res.usage.{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}
- * guard.record({
- *   input:      res.usage.input_tokens,
- *   output:     res.usage.output_tokens,
- *   cacheHit:   res.usage.cache_read_input_tokens,
- *   cacheWrite: res.usage.cache_creation_input_tokens,
- * })
- *
- * // OpenAI: res.usage.{prompt_tokens, completion_tokens, completion_tokens_details.reasoning_tokens, prompt_tokens_details.cached_tokens}
- * guard.record({
- *   input:     res.usage.prompt_tokens - (res.usage.prompt_tokens_details?.cached_tokens ?? 0),
- *   output:    res.usage.completion_tokens,
- *   reasoning: res.usage.completion_tokens_details?.reasoning_tokens,
- *   cacheHit:  res.usage.prompt_tokens_details?.cached_tokens,
- * })
- */
 export function costGuard(options: CostGuardOptions): CostGuard {
   const { model, budget = {} } = options
   let { assumedOutputTokens = 256, assumedReasoningTokens = 0 } = options
@@ -223,8 +187,9 @@ export function costGuard(options: CostGuardOptions): CostGuard {
     },
 
     record(usage: UsageBreakdown) {
-      // Reject non-finite / negative — one bad record poisons the whole session
-      // (NaN propagates through arithmetic, silently disabling budget enforcement).
+      // NaN / Infinity / negatives must reject before mutation — a single bad
+      // value would propagate through subsequent arithmetic and silently
+      // disable budget enforcement.
       const fields: Array<[keyof UsageBreakdown, number | undefined]> = [
         ['input',      usage.input],
         ['output',     usage.output],
@@ -252,8 +217,6 @@ export function costGuard(options: CostGuardOptions): CostGuard {
     summary(): SessionSummary {
       const spent = currentSpent()
       const reasoningSpent = currentReasoningSpent()
-      // Cache savings: how much we'd have paid if cacheHit tokens had been
-      // charged at the full input rate instead of the cached rate.
       const cacheSavings = totals.cacheHit > 0 && price.cachedInput !== undefined
         ? (totals.cacheHit * (price.input - price.cachedInput)) / 1_000_000
         : 0

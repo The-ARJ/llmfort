@@ -6,19 +6,10 @@ import type { Message, TrimOptions, TrimResult, TrimStrategy } from './types.js'
 export type { ContentBlock, Message, ToolCall, TrimOptions, TrimResult, TrimStrategy } from './types.js'
 
 /**
- * Trim a conversation to fit a token budget without breaking it.
- *
- * Preserves system messages, the last N turns, pinned messages, and keeps
- * tool_call / tool_result pairs atomic. Three strategies: 'sliding' (drop
- * oldest turns), 'importance' (drop lowest-score turns), 'summary' (compress
- * dropped block into a single message via your callback).
- *
- * @example
- * const trimmed = await contextTrim(messages, {
- *   model: 'gpt-5',
- *   maxTokens: 100_000,
- *   keepLastTurns: 4,
- * })
+ * Trim a conversation to fit a token budget. Preserves system messages, the
+ * last N turns, pinned messages, and keeps tool_call / tool_result pairs
+ * atomic. Strategies: `'sliding'` (oldest-first), `'importance'` (lowest-score
+ * first), `'summary'` (compress dropped block via a user-provided callback).
  */
 export async function contextTrim(
   messages: Message[],
@@ -32,6 +23,7 @@ export async function contextTrim(
     keepSystem = true,
     summarize,
     summaryRole = 'system',
+    cacheBreakpoints,
   } = options
 
   if (!Number.isFinite(maxTokens) || maxTokens < 0) {
@@ -51,9 +43,8 @@ export async function contextTrim(
   const tokensBefore = countTokens(messages, model)
   const grouped = groupTurns(messages)
 
-  // Orphan tool messages are broken state regardless of budget — remove them
-  // before checking if we're under budget. An "under budget with orphans"
-  // conversation is still corrupt and will confuse the model.
+  // Orphan tool messages are broken state and always get dropped, even if
+  // we're already under budget — the model would otherwise choke on them.
   const orphanIndices = new Set<number>()
   for (const turn of grouped.turns) {
     if (turn.kind === 'orphan') {
@@ -64,7 +55,6 @@ export async function contextTrim(
   const tokensAfterOrphanRemoval = countTokensOfIndices(messages, orphanIndices, tokensBefore, model)
   if (tokensAfterOrphanRemoval <= maxTokens) {
     if (orphanIndices.size === 0) {
-      // Fast path: nothing to do.
       return {
         messages: messages.slice(),
         removed: 0,
@@ -78,10 +68,7 @@ export async function contextTrim(
     return finalize(messages, orphanIndices, tokensBefore, maxTokens, strategy, model)
   }
 
-  // Determine "protected" indices — the union of:
-  //   - system messages (if keepSystem)
-  //   - pinned messages (anywhere)
-  //   - messages belonging to the last keepLastTurns real turns
+  // Protected = system messages ∪ pinned messages ∪ last N non-orphan turns.
   const protectedIdx = new Set<number>()
 
   if (keepSystem) {
@@ -90,7 +77,6 @@ export async function contextTrim(
   for (let i = 0; i < messages.length; i++) {
     if (messages[i]!.pinned === true) protectedIdx.add(i)
   }
-  // Last N turns — counted from the end, skipping orphans (which should always go first).
   const keptTail: Turn[] = []
   for (let t = grouped.turns.length - 1; t >= 0 && keptTail.length < keepLastTurns; t--) {
     const turn = grouped.turns[t]!
@@ -100,13 +86,31 @@ export async function contextTrim(
   for (const turn of keptTail) {
     for (const idx of turn.indices) protectedIdx.add(idx)
   }
-  // Pinned turns are always protected (one pinned message pins the whole turn).
   for (const turn of grouped.turns) {
     if (turn.pinned) for (const idx of turn.indices) protectedIdx.add(idx)
   }
 
-  // Removable turns: everything not protected and not orphan (orphans were
-  // already handled above in the pre-check).
+  // Cache-breakpoint protection propagates to entire turns — a partially-
+  // protected turn would still be removed (turns are atomic), so we extend
+  // protection to every turn touching an index ≤ the latest breakpoint.
+  if (cacheBreakpoints && cacheBreakpoints.length > 0) {
+    const breakpointSet = new Set(cacheBreakpoints)
+    let lastBreakpointIdx = -1
+    for (let i = 0; i < messages.length; i++) {
+      const id = messages[i]!.id
+      if (id && breakpointSet.has(id)) lastBreakpointIdx = i
+    }
+    if (lastBreakpointIdx >= 0) {
+      // Protect every message index at or before the breakpoint.
+      for (let i = 0; i <= lastBreakpointIdx; i++) protectedIdx.add(i)
+      for (const turn of grouped.turns) {
+        if (turn.indices.some(i => i <= lastBreakpointIdx)) {
+          for (const idx of turn.indices) protectedIdx.add(idx)
+        }
+      }
+    }
+  }
+
   const removableTurns: Turn[] = []
   for (const turn of grouped.turns) {
     if (turn.kind === 'orphan') continue
@@ -114,7 +118,6 @@ export async function contextTrim(
     removableTurns.push(turn)
   }
 
-  // Start the removed set with all orphans (they're always dropped).
   const removed = new Set<number>(orphanIndices)
 
   let current = countTokensOfIndices(messages, removed, tokensBefore, model)
@@ -122,12 +125,9 @@ export async function contextTrim(
     return finalize(messages, removed, tokensBefore, maxTokens, strategy, model)
   }
 
-  // Order removable turns by strategy.
   const order = removalOrder(removableTurns, strategy, options.score)
 
   if (strategy === 'summary') {
-    // Summary strategy: collect the set we'd remove via sliding, then ask
-    // the user to summarize it into a single message.
     const toRemove: Turn[] = []
     for (const turn of order) {
       toRemove.push(turn)
@@ -143,7 +143,7 @@ export async function contextTrim(
     try {
       summary = await summarize!(toSummarize)
     } catch (e) {
-      // Summarize failed — fall back to plain removal so we still fit the budget.
+      // Summarize failed — fall back to plain removal so we still fit budget.
       return finalize(messages, removed, tokensBefore, maxTokens, strategy, model)
     }
     if (typeof summary !== 'string' || !summary.trim()) {
@@ -156,7 +156,6 @@ export async function contextTrim(
     return finalizeWithInjection(messages, removed, summaryMessage, tokensBefore, maxTokens, strategy, model)
   }
 
-  // Sliding / importance.
   for (const turn of order) {
     for (const idx of turn.indices) removed.add(idx)
     current = countTokensOfIndices(messages, removed, tokensBefore, model)
@@ -165,8 +164,6 @@ export async function contextTrim(
 
   return finalize(messages, removed, tokensBefore, maxTokens, strategy, model)
 }
-
-// --- Strategy-specific ordering ---
 
 function removalOrder(
   turns: Turn[],
@@ -179,15 +176,11 @@ function removalOrder(
       const sum = t.messages.reduce((a, m) => a + score(m), 0)
       return { t, s: sum / Math.max(1, t.messages.length) }
     })
-    // Lowest score = first to go.
     scored.sort((a, b) => a.s - b.s)
     return scored.map(x => x.t)
   }
-  // sliding / summary: oldest first (already in order).
   return turns.slice()
 }
-
-// --- Finalization helpers ---
 
 function finalize(
   original: Message[],
@@ -223,10 +216,7 @@ function finalizeWithInjection(
   strategy: TrimStrategy,
   model: string | undefined,
 ): TrimResult {
-  // Build the surviving list, then splice the summary in right after any
-  // leading run of system messages. This guarantees the summary appears
-  // before the first user/assistant/tool message, no matter which turns
-  // were removed.
+  // Splice the summary in right after any leading run of system messages.
   const survivors: Message[] = []
   for (let i = 0; i < original.length; i++) {
     if (!removed.has(i)) survivors.push(original[i]!)
@@ -235,7 +225,6 @@ function finalizeWithInjection(
   while (insertAt < survivors.length && survivors[insertAt]!.role === 'system') insertAt++
   const out = [...survivors.slice(0, insertAt), injected, ...survivors.slice(insertAt)]
 
-  // Recount against the trimmed+injected output (fresh count, not via indices).
   const tokensAfter = countTokens(out, model)
   const overflow = Math.max(0, tokensAfter - maxTokens)
   return {
@@ -249,11 +238,6 @@ function finalizeWithInjection(
   }
 }
 
-/**
- * Compute total tokens of the subset (all messages NOT in removed).
- * We do this by subtracting removed messages from tokensBefore so we don't
- * re-walk the whole array every iteration.
- */
 function countTokensOfIndices(
   messages: Message[],
   removed: Set<number>,
@@ -265,28 +249,22 @@ function countTokensOfIndices(
   return Math.max(0, tokensBefore - subtract)
 }
 
-// --- Sync helpers attached to contextTrim ---
-
-/** Total tokens for the full conversation (including per-reply primer). */
+/** Total tokens for the conversation, including the reply primer. */
 contextTrim.count = function (messages: Message[], model?: string): number {
   return countTokens(messages, model)
 }
 
-/** Tokens for a single message (content + overhead + any tool calls). */
+/** Tokens for a single message. */
 contextTrim.countMessage = function (msg: Message, model?: string): number {
   return countMessageTokens(msg, model)
 }
 
-/** Importance score for a single message — 0..10. */
+/** Importance score, 0..10. */
 contextTrim.score = function (msg: Message): number {
   return scoreMessage(msg)
 }
 
-/**
- * Would `contextTrim(messages, opts)` actually trim anything? Returns a
- * summary without mutating. Useful for "your conversation is getting long"
- * UI indicators.
- */
+/** Predict whether a call to `contextTrim` would actually trim. */
 contextTrim.dryRun = function (messages: Message[], opts: TrimOptions): {
   wouldTrim: boolean
   tokensBefore: number

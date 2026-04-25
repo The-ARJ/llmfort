@@ -1,48 +1,25 @@
-/**
- * Turn grouping — the foundation every strategy relies on.
- *
- * A "turn" is a conversational unit that must be trimmed atomically to avoid
- * leaving the model with dangling state:
- *   - A user turn is one `user` message.
- *   - An assistant turn is one `assistant` message + all its `tool` responses
- *     (identified by tool_call_id → tool_calls[].id matching).
- *   - Orphaned tool messages (no matching call in history) form their own
- *     single-message turn — they're garbage and will be dropped first.
- *   - System messages are NEVER part of a turn; they're handled separately.
- *
- * This grouping is how we guarantee tool_call/tool_result pairs stay together.
- */
 import type { Message } from './types.js'
 
 export interface Turn {
-  /** Indices in the original messages array, in order. */
   indices: number[]
-  /** The messages themselves, in order. */
   messages: Message[]
-  /** True if any message in the turn is pinned. */
   pinned: boolean
-  /**
-   * Turn starter: user | assistant | orphan.
-   * orphan = tool result with no matching call — safe to drop.
-   */
+  /** `orphan` = tool message with no matching call; always dropped first. */
   kind: 'user' | 'assistant' | 'orphan'
 }
 
 export interface Grouped {
-  /** Indices of messages with role 'system', in order. */
   systemIndices: number[]
-  /** Turn groups in order. */
   turns: Turn[]
 }
 
 /**
- * Group messages into (system messages) + (ordered turns).
+ * Group messages into (system bucket) + (atomic turns).
  *
- * Algorithm: walk the array. System messages go into their own bucket. For
- * everything else, start a new turn at each `user` or `assistant` message, and
- * attach subsequent `tool` messages whose tool_call_id matches a call issued
- * by the most recent `assistant` message in the current turn. If a `tool`
- * appears without a call we can resolve, it's an orphan turn of its own.
+ * A turn is a conversational unit that must be trimmed atomically: a user
+ * message, optionally followed by an assistant message and any `tool`
+ * responses matching that assistant's `tool_calls[].id`. Orphan tool messages
+ * — no matching call visible — get their own single-message turn.
  */
 export function groupTurns(messages: Message[]): Grouped {
   const systemIndices: number[] = []
@@ -62,7 +39,6 @@ export function groupTurns(messages: Message[]): Grouped {
     const m = messages[i]!
 
     if (m.role === 'system') {
-      // Close any open turn so the system message acts as a separator.
       push(); current = null; pendingToolCallIds = new Set()
       systemIndices.push(i)
       continue
@@ -76,8 +52,7 @@ export function groupTurns(messages: Message[]): Grouped {
     }
 
     if (m.role === 'assistant') {
-      // An assistant message belongs to the *previous* user turn if that turn
-      // has no assistant yet — that's how (user, assistant) pairs form.
+      // Attach to the prior user turn if that turn has no assistant yet.
       if (current && current.kind === 'user' && !current.messages.some(x => x.role === 'assistant')) {
         current.indices.push(i)
         current.messages.push(m)
@@ -91,14 +66,10 @@ export function groupTurns(messages: Message[]): Grouped {
 
     if (m.role === 'tool') {
       if (current && m.tool_call_id && pendingToolCallIds.has(m.tool_call_id)) {
-        // Attach to current turn — this tool is responding to one of its calls.
         current.indices.push(i)
         current.messages.push(m)
         pendingToolCallIds.delete(m.tool_call_id)
       } else {
-        // Orphan tool message — no matching call visible. Safe to drop; give
-        // it its own turn so the caller can remove it without disturbing
-        // neighbours. Close any open turn first.
         push()
         turns.push({ indices: [i], messages: [m], pinned: m.pinned === true, kind: 'orphan' })
         current = null
@@ -109,7 +80,6 @@ export function groupTurns(messages: Message[]): Grouped {
   }
   push()
 
-  // Propagate pinned=true to whole turn if any message within is pinned.
   for (const t of turns) t.pinned = t.messages.some(m => m.pinned === true)
 
   return { systemIndices, turns }

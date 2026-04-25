@@ -1,32 +1,9 @@
-/**
- * Accumulate streamed tool-call chunks from OpenAI or Anthropic into complete
- * tool-call objects.
- *
- * Both providers stream `arguments` as JSON deltas — OpenAI via
- * `choices[].delta.tool_calls[].function.arguments` chunks indexed by
- * `tool_calls[].index`, Anthropic via `content_block_delta` events with
- * `delta.type === 'input_json_delta'`. Teams rebuild this state machine in
- * every app; ship it once.
- *
- * @example
- * const acc = toolCallAccumulator('openai')
- * for await (const chunk of openai.chat.completions.create({ stream: true, ... })) {
- *   const completed = acc.push(chunk)
- *   for (const call of completed) handleToolCall(call)
- * }
- * // Always flush at the end — tool calls on the last message may not have
- * // a dedicated "finished" signal in the stream.
- * for (const call of acc.flush()) handleToolCall(call)
- */
-
 export interface CompletedToolCall {
   id: string
   name: string
-  /** The parsed arguments. Falls back to the raw string if JSON parsing fails. */
+  /** Parsed JSON arguments. Falls back to the raw string if parsing fails. */
   arguments: unknown
-  /** Original arguments string exactly as the model emitted it. */
   argumentsRaw: string
-  /** Position within the streamed batch (OpenAI has `index`; Anthropic has block index). */
   index?: number
 }
 
@@ -41,17 +18,12 @@ interface PartialCall {
 }
 
 export interface ToolCallAccumulator {
-  /**
-   * Feed one streamed chunk. Returns any tool calls that completed on this
-   * chunk (OpenAI emits `finish_reason: 'tool_calls'` or the index moves on;
-   * Anthropic emits `content_block_stop`). Usually empty until the end.
-   */
+  /** Feed one streamed chunk. Returns any tool calls that completed on this chunk. */
   push(chunk: unknown): CompletedToolCall[]
-  /** Emit any tool calls that haven't been reported yet (call at end of stream). */
+  /** Emit any in-flight calls. Call at end of stream — some providers don't emit a final signal. */
   flush(): CompletedToolCall[]
-  /** Current partial state — useful for UI "streaming tool call" indicators. */
+  /** Current in-flight state for UI progress indicators. */
   partial(): Array<{ id?: string; name?: string; argumentsRaw: string; index: number }>
-  /** Reset internal state so the accumulator can be reused. */
   reset(): void
 }
 
@@ -100,7 +72,6 @@ export function toolCallAccumulator(provider: StreamProvider): ToolCallAccumulat
       }
     }
 
-    // When finish_reason: 'tool_calls' fires, every partial is done.
     if (finishReason === 'tool_calls') {
       for (const p of partials.values()) {
         const c = finalize(p)
@@ -122,7 +93,6 @@ export function toolCallAccumulator(provider: StreamProvider): ToolCallAccumulat
         const p = ensurePartial(idx)
         if (block.id) p.id = block.id
         if (block.name) p.name = block.name
-        // Anthropic tool_use.input may arrive via deltas, so we don't set it here.
       }
     } else if (t === 'content_block_delta') {
       const idx = typeof chunk.index === 'number' ? chunk.index : 0
@@ -139,7 +109,6 @@ export function toolCallAccumulator(provider: StreamProvider): ToolCallAccumulat
         if (c) completed.push(c)
       }
     } else if (t === 'message_stop') {
-      // Flush anything not already emitted — belt-and-suspenders.
       for (const p of partials.values()) {
         const c = finalize(p)
         if (c) completed.push(c)

@@ -1,15 +1,8 @@
-/**
- * Tiny JSON-Schema-subset validator — used when the user passes a plain
- * schema object (as opposed to a Zod/Valibot/ArkType/AJV instance).
- *
- * Covers what LLMs actually emit: type, required, properties, items, enum,
- * minimum/maximum, additionalProperties. Not a full JSON Schema implementation
- * — no $ref, no allOf/anyOf/oneOf, no format, no pattern. If users need that
- * they should bring AJV (which already implements the duck-typed `validate`
- * interface this module consumes).
- */
 import type { JsonSchemaValidator, ValidationIssue } from './types.js'
 
+// JSON-Schema subset: type, required, properties, items, enum, min/max,
+// additionalProperties. Bring AJV (via the duck-typed `validate` adapter) for
+// $ref / allOf / anyOf / pattern / format.
 export function validateJsonSchema(
   value: unknown,
   schema: JsonSchemaValidator,
@@ -28,7 +21,7 @@ export function validateJsonSchema(
         expected,
         got: t,
       })
-      return issues // downstream checks presume the type matches
+      return issues
     }
   }
 
@@ -89,7 +82,6 @@ function typeOf(v: unknown): string {
   return typeof v
 }
 
-/** Detect whether an unknown object looks like a plain JSON Schema descriptor. */
 export function looksLikeJsonSchema(v: unknown): v is JsonSchemaValidator {
   if (v === null || typeof v !== 'object') return false
   const o = v as Record<string, unknown>

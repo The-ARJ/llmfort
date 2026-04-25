@@ -589,6 +589,82 @@ describe('contextTrim — Claude content blocks + thinking', () => {
   })
 })
 
+// ----- Cache-breakpoint protection -----
+
+describe('contextTrim — cacheBreakpoints', () => {
+  it('protects messages at or before the marked breakpoint', async () => {
+    // Set up: cache-anchor at message 2 (id: 'anchor'), many trimmable turns after.
+    const msgs: Message[] = [
+      systemMsg,
+      { role: 'user', content: 'important early context', id: 'anchor' },
+      { role: 'assistant', content: 'understood', id: 'anchor_reply' },
+    ]
+    for (let i = 0; i < 15; i++) {
+      msgs.push(u(`filler ${i} ${'x'.repeat(80)}`))
+      msgs.push(a(`reply ${i} ${'x'.repeat(80)}`))
+    }
+    const r = await contextTrim(msgs, {
+      maxTokens: 120,
+      keepLastTurns: 1,
+      cacheBreakpoints: ['anchor'],
+    })
+    // The anchor message must survive trimming.
+    expect(r.messages.some(m => m.id === 'anchor')).toBe(true)
+  })
+
+  it('protects the latest breakpoint when multiple are provided', async () => {
+    const msgs: Message[] = [systemMsg]
+    for (let i = 0; i < 10; i++) {
+      const uMsg: Message = { role: 'user', content: `u${i} ${'x'.repeat(50)}`, id: `u${i}` }
+      const aMsg: Message = { role: 'assistant', content: `a${i}`, id: `a${i}` }
+      msgs.push(uMsg, aMsg)
+    }
+    const r = await contextTrim(msgs, {
+      maxTokens: 80,
+      keepLastTurns: 1,
+      cacheBreakpoints: ['u3', 'u7'], // u7 is later → protect 0..u7
+    })
+    // Every message at or before 'u7' must survive (messages[0..15] where u7 is at 15).
+    // Find u7's index and check all earlier messages still present.
+    const u7Present = r.messages.some(m => m.id === 'u7')
+    const u3Present = r.messages.some(m => m.id === 'u3')
+    expect(u7Present).toBe(true)
+    expect(u3Present).toBe(true)
+  })
+
+  it('unknown breakpoint ID is a no-op (not an error)', async () => {
+    const msgs: Message[] = [systemMsg, u('hi'), a('hello')]
+    const r = await contextTrim(msgs, {
+      maxTokens: 10_000,
+      cacheBreakpoints: ['nonexistent'],
+    })
+    expect(r.trimmed).toBe(false)
+  })
+
+  it('if protected set exceeds budget, overflow > 0', async () => {
+    const msgs: Message[] = [
+      systemMsg,
+      { role: 'user', content: 'x'.repeat(5000), id: 'anchor' },
+      a('ok'),
+    ]
+    const r = await contextTrim(msgs, {
+      maxTokens: 100,
+      keepLastTurns: 1,
+      cacheBreakpoints: ['anchor'],
+    })
+    // The anchor forces us to keep the huge message; overflow reports the gap.
+    expect(r.overflow).toBeGreaterThan(0)
+    expect(r.messages.some(m => m.id === 'anchor')).toBe(true)
+  })
+
+  it('empty cacheBreakpoints array is a no-op', async () => {
+    const msgs: Message[] = [systemMsg, u('hi'), a('hello')]
+    const r1 = await contextTrim(msgs, { maxTokens: 10_000, cacheBreakpoints: [] })
+    const r2 = await contextTrim(msgs, { maxTokens: 10_000 })
+    expect(r1.messages).toEqual(r2.messages)
+  })
+})
+
 // ----- Idempotence -----
 
 describe('contextTrim — idempotence', () => {

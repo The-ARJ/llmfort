@@ -1,20 +1,11 @@
-/**
- * Per-message token-count overhead, by model family.
- *
- * Real APIs don't bill you just for content tokens — they add a small fixed
- * overhead for the role wrapper, content-type, and (for tool calls) function
- * envelope. Most people forget this and systematically underestimate by 3-10%.
- *
- * Numbers below follow `tiktoken`'s published constants for OpenAI's chat
- * format and Anthropic's documented accounting.
- */
 import { estimateTokens } from '../cost-guard/index.js'
 import type { Message } from './types.js'
 
+// Overhead numbers from tiktoken's published constants for OpenAI's chat
+// format and Anthropic's documented token accounting.
 interface Overhead {
   perMessage: number
   perToolCall: number
-  /** Primer tokens added to every completion (used when counting a whole conversation). */
   reply: number
 }
 
@@ -32,11 +23,7 @@ function overheadFor(model?: string): Overhead {
   return OPENAI_OVERHEAD
 }
 
-/**
- * Token count for a single message, including role overhead, content blocks,
- * and tool calls. Handles all three content shapes: string, null, and
- * ContentBlock[].
- */
+/** Token count for a single message including role overhead, content blocks, and tool calls. */
 export function countMessageTokens(msg: Message, model?: string): number {
   const o = overheadFor(model)
   let tokens = o.perMessage
@@ -45,12 +32,9 @@ export function countMessageTokens(msg: Message, model?: string): number {
     tokens += estimateTokens(msg.content, model)
   } else if (Array.isArray(msg.content)) {
     for (const block of msg.content) {
-      // Text & thinking blocks contribute their text.
       if (typeof block.text === 'string') tokens += estimateTokens(block.text, model)
       if (typeof block.thinking === 'string') tokens += estimateTokens(block.thinking, model)
-      // Block structural overhead (rough — each block has a small envelope).
-      tokens += 4
-      // tool_use/tool_result blocks: best-effort count their JSON payload.
+      tokens += 4 // block envelope
       if (block.type === 'tool_use' && typeof (block as any).input === 'object') {
         try { tokens += estimateTokens(JSON.stringify((block as any).input), model) } catch { /* ignore */ }
       }
@@ -76,10 +60,7 @@ export function countMessageTokens(msg: Message, model?: string): number {
   return tokens
 }
 
-/**
- * Total token count for a conversation, including the per-completion primer.
- * Pass this directly into your max_tokens headroom calculations.
- */
+/** Total token count for the conversation, including the reply primer. */
 export function countTokens(messages: Message[], model?: string): number {
   const o = overheadFor(model)
   let total = o.reply

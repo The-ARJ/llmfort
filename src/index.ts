@@ -1,6 +1,8 @@
 export {
   toolSchema,
   toolSchemaAll,
+  lintToolSchema,
+  lintUnknownKeywords,
   type Provider,
   type ToolMeta,
   type ToolSchemaResult,
@@ -12,15 +14,20 @@ export {
   type JsonSchemaType,
   type ParameterSchema,
   type ParamMeta,
+  type LintWarning,
+  type LintResult,
+  type LintSeverity,
 } from './tool-schema/index.js'
 
 export {
   promptSafe,
   PromptViolationError,
+  INDIRECT_PATTERNS,
   type Violation,
   type ViolationType,
   type SafeResult,
   type PromptSafeOptions,
+  type IndirectScanOptions,
 } from './prompt-safe/index.js'
 
 export {
@@ -40,9 +47,12 @@ export {
 export {
   structOut,
   StructOutError,
+  prefillForClaude,
+  parsePrefilledClaude,
   type AttemptInfo,
   type JsonSchemaValidator,
   type PartialMode,
+  type PrefillDirective,
   type RepairContext,
   type StructOutOptions,
   type StructOutResult,

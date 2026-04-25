@@ -1,20 +1,22 @@
 # @the-arj/llmfort
 
-> Fortify your LLM calls. Zero-dependency Node.js toolkit for **GPT**, **Claude**, and **Gemini** — tool schemas, prompt-injection + PII scanning, structured JSON with repair, conversation trimming, cost/budget guardrails, 429 retry, error normalization, cache-key stability, and streaming tool-call accumulation.
+A zero-dependency Node.js toolkit for **GPT**, **Claude**, and **Gemini**. Nine modules covering the surfaces provider SDKs leave to the caller: tool schemas, prompt scanning, structured JSON, conversation trimming, cost guards, retry, error normalization, cache keys, and streaming tool calls.
 
-Nine focused modules. Zero runtime dependencies. Full TypeScript types. ESM + CJS.
-Built for the April 2026 model landscape: **GPT-5 / 5-mini / 5-nano**, **GPT-4.1**, **o3 / o4-mini**, **Claude Opus 4.7 / Sonnet 4.6 / Haiku 4.5**, **Gemini 3 Pro / Flash**.
+Pricing and provider quirks verified against the  2026 model landscape: GPT-5 / 5-mini / 5-nano, GPT-4.1, o3 / o4-mini, Claude Opus 4.7 / Sonnet 4.6 / Haiku 4.5, Gemini 3 Pro / Flash.
 
-`llmfort` sits between your app code and whichever LLM SDK you use. It won't stream, it won't route, it won't call APIs for you — it fortifies the surfaces provider SDKs leave exposed.
+```sh
+npm install @the-arj/llmfort
+```
+
+Requires Node.js 18+. Ships ESM + CJS with full TypeScript types.
 
 ```ts
-// Root import (convenient)
 import {
   toolSchema, promptSafe, structOut, contextTrim, costGuard,
   retryLLM, normalizeError, cacheKey, toolCallAccumulator,
 } from '@the-arj/llmfort'
 
-// Or import the one module you need (smaller bundle)
+// Or import individually for smaller bundles:
 import { toolSchema }          from '@the-arj/llmfort/tool-schema'
 import { promptSafe }          from '@the-arj/llmfort/prompt-safe'
 import { structOut }           from '@the-arj/llmfort/struct-out'
@@ -28,29 +30,19 @@ import { toolCallAccumulator } from '@the-arj/llmfort/stream-tools'
 
 ---
 
-## Install
+## Modules at a glance
 
-```sh
-npm install @the-arj/llmfort
-```
-
-Requires **Node.js ≥ 18**. Works from both ESM and CJS.
-
----
-
-## Why this exists
-
-| You want | Existing option | Gap this fills |
-|---|---|---|
-| One tool definition that works on OpenAI, Anthropic, Gemini | `zod-to-json-schema`, `ai` SDK, provider SDKs | Each SDK emits only its own format. This package emits all three envelopes from a single metadata object, with `additionalProperties: false` for strict-mode compatibility. |
-| Block prompt injection / PII before it reaches the model | Python's `llm-guard` / `presidio` | Pure-JS, offline, zero-dep, multilingual. No HTTP, no telemetry, no account. |
-| Turn a noisy LLM response into a validated, typed object | Hand-rolled JSON.parse + Zod + retry loop in every project | Extraction, lenient parse, truncation repair, validation, and a surgical repair prompt loop — with any validator (Zod, Valibot, ArkType, AJV, plain JSON Schema). |
-| Keep a long conversation under the model's context limit without breaking it | Naive `messages.slice(-20)`, hand-rolled summarization | Turn-aware trimming that preserves system prompts, pinned messages, tool_call/tool_result pairs, and your last N turns. Three strategies: sliding, importance-scored, or LLM-summarized. |
-| Hard stop if a call would blow the budget, **including hidden reasoning tokens** | `tiktoken`, `gpt-tokenizer`, `llm-cost` | Those count tokens. This **enforces** per-call, session, and reasoning budgets with a typed error; understands prompt-caching economics (cached-input discount, Anthropic cache-write premium); tracks real spend after each call. |
-| Retry 429 and transient errors correctly across three providers | Hand-rolled `setTimeout` loops | Reads OpenAI `x-ratelimit-reset-*`, Anthropic `retry-after`, Gemini `RetryInfo` — falls back to exponential backoff with jitter. Never retries on 400/401/403/content-filter. |
-| Know whether a provider error is "safe to retry", "billing", "content filter", or "context overflow" | `if (err.status === 429 \|\| err.error?.type === 'rate_limit_error' \|\| ...)` in every project | Tagged-union `NormalizedError` across OpenAI + Anthropic + Gemini. |
-| Build a stable prompt-cache key (byte-stable across tool reorderings, JSON-key reorderings, whitespace drift) | Hand-rolled hashing of `JSON.stringify(messages)` | A canonical serializer + SHA-256 that won't silently break your Anthropic `cache_control` hit rate. |
-| Accumulate streamed tool-call JSON-argument deltas (OpenAI + Anthropic) | Custom state machine per app | One `toolCallAccumulator(provider)` that yields completed tool calls. |
+| Module | What it does |
+|---|---|
+| `tool-schema` | One tool definition → OpenAI / Anthropic / Gemini envelopes. `lint(meta)` warns about each provider's silent-strip and outright-reject keywords. |
+| `prompt-safe` | Regex scanner for prompt injection, jailbreak attempts, and PII (English + zh / es / fr / de / ru / ja / ko / ar). Separate `scanToolResult` / `scanRetrievedDoc` entry points for indirect injection. |
+| `struct-out` | Extract JSON from a raw LLM response, parse leniently, validate against any schema (Zod / Valibot / ArkType / AJV / plain JSON Schema), and run an optional repair loop with a surgical fix prompt. |
+| `context-trim` | Turn-aware conversation trimmer. Preserves system messages, pinned turns, tool_call/tool_result pairs, and Anthropic prompt-cache prefixes. Sliding / importance / summary strategies. |
+| `cost-guard` | Pre-call estimate + per-call / session / reasoning-token budget enforcement. Understands cached-input discounts and Anthropic cache-write premium. |
+| `retry-llm` | 429 / transient retry. Reads OpenAI `x-ratelimit-reset-*`, Anthropic `retry-after`, Gemini `RetryInfo`; falls back to exponential backoff with jitter. Never retries 400 / 401 / 403 / content-filter. |
+| `error-normalize` | Tagged union covering rate-limited / context-overflow / content-filtered / schema-invalid / auth / billing / bad-request / server-error / network / transient / aborted / unknown. |
+| `cache-key` | Stable canonical hash for prompt-cache keys (sorted tools, sorted JSON keys in `arguments`, whitespace-normalized prompts, namespace-isolated). |
+| `stream-tools` | Streaming tool-call delta accumulator for OpenAI + Anthropic chunk shapes. |
 
 ---
 
@@ -88,6 +80,17 @@ Every output includes `additionalProperties: false` on the generated object sche
 
 **ParamMeta fields:** `type`, `description`, `enum`, `required` (default `true`), `items`, `minimum`, `maximum`, `default`.
 
+**Lint.** Each provider silently strips or rejects different JSON-Schema features. Anthropic strips `pattern` / `minLength` / `format`. Gemini rejects nesting over 5 levels and `$ref` / `allOf` / `anyOf`. OpenAI strict mode requires every field in `required`. `toolSchema.lint(meta)` returns those warnings grouped by provider.
+
+```ts
+const { warnings, byProvider } = toolSchema.lint(meta)
+if (byProvider.anthropic.length > 0) {
+  // e.g. "field 'email': pattern is silently stripped from Claude's input_schema.
+  //       Encode this constraint in the description if you want Claude to honor it."
+  console.warn(byProvider.anthropic)
+}
+```
+
 ---
 
 ### `prompt-safe` — Prompt injection, jailbreak, and PII detection
@@ -105,7 +108,7 @@ const result = promptSafe(userInput)
 const clean = promptSafe.redact(userInput)
 // "Contact [REDACTED_EMAIL] or call [REDACTED_PHONE]"
 
-// Throw on any violation — drop into middleware
+// Throw on any violation
 promptSafe.assert(userInput) // throws PromptViolationError if unsafe
 
 // Disable categories you don't need
@@ -120,18 +123,33 @@ promptSafe(text, { injection: true, jailbreak: false, pii: true })
 | **Jailbreak** | DAN, "do anything now", developer/god mode, base64 payloads, opposite/evil mode, persona exploits (grandma, deceased, etc.), simulation framing, repeat-N-times token overflow, educational/hypothetical harmful framing |
 | **PII** | Email, US phone (requires formatting — won't false-positive on order numbers), SSN, credit card (**Luhn-validated**), IPv4, passport (requires context word), API keys (OpenAI `sk-proj-`/`sk-ant-`, Google `AIza`, AWS `AKIA`, GitHub `ghp_`, Slack `xoxb-/xoxp-`), JWT |
 
-Notable hardening vs. naive regex scanners:
+False-positive guards:
 
-- **Luhn validation** on credit-card matches — random 16-digit order numbers don't trigger.
-- **Phone numbers require formatting** (dashes, dots, spaces, parens, or `+1`) — bare 10-digit integers like invoice IDs don't trigger.
-- **Passport matches require context** (`passport`, `travel document`, `MRZ` within 40 chars) — product SKUs don't trigger.
-- **Multilingual injection patterns** for Chinese, Spanish, French, German, Russian, Japanese, Korean, Arabic — the single most common bypass in 2025-2026 research.
+- **Luhn validation** on credit-card matches; random 16-digit order numbers won't trigger.
+- **Phone numbers require formatting** (dashes, dots, spaces, parens, or `+1`); bare 10-digit integers won't trigger.
+- **Passport matches require context** (`passport`, `travel document`, or `MRZ` within 40 characters); product SKUs won't trigger.
+- **Multilingual injection patterns** for Chinese, Spanish, French, German, Russian, Japanese, Korean, and Arabic.
+
+**Indirect injection.** OWASP LLM01 now lists indirect prompt injection — poisoned tool results, malicious RAG documents — as the top attack vector. `promptSafe.scanToolResult()` and `scanRetrievedDoc()` apply a different pattern set tuned for untrusted content: fake system tags, chat-template tokens, markdown-image exfiltration, data-URL payloads, fake `<tool_use>` envelopes, embedded imperatives aimed at the model.
+
+```ts
+const apiResult = await fetchExternalAPI(userId)
+const scan = promptSafe.scanToolResult(apiResult)
+if (!scan.safe) {
+  log.warn({ userId, violations: scan.violations }, 'Poisoned tool result')
+  return '[tool result redacted — suspicious content]'
+}
+
+// Same idea for a RAG-retrieved document
+const doc = await vectorStore.fetch(docId)
+if (!promptSafe.scanRetrievedDoc(doc.text).safe) skipThisDoc()
+```
 
 ---
 
 ### `struct-out` — Reliable structured JSON from any LLM
 
-Most "just ask the model for JSON" calls fail 2–15% of the time in production: markdown fences around the object, extra fields the schema didn't ask for, a string where a number should be, truncation mid-brace, prose instead of JSON. `struct-out` handles every one of those without you writing the same brittle extractor–parser–validator–retry loop in every project.
+LLM JSON output fails for many reasons: markdown fences, extra fields the schema didn't ask for, a string where a number should be, mid-brace truncation, prose instead of JSON. `struct-out` extracts the JSON region, parses leniently, validates against any schema, and (optionally) runs a repair loop with a surgical fix prompt.
 
 ```ts
 import { structOut } from '@the-arj/llmfort/struct-out'
@@ -207,6 +225,30 @@ const schema = {
 
 The built-in JSON Schema checker covers what LLMs actually emit (`type`, `required`, `properties`, `items`, `enum`, `minimum`/`maximum`, `additionalProperties`). For full JSON Schema support, pass an AJV instance.
 
+**Claude assistant pre-fill.** Pre-filling `{` into the assistant turn primes Claude to continue strict JSON, suppressing markdown fences and preamble. `struct-out` exposes a directive plus a one-shot helper:
+
+```ts
+import Anthropic from '@anthropic-ai/sdk'
+import { structOut } from '@the-arj/llmfort/struct-out'
+
+const pf = structOut.prefillForClaude()           // { prefill:'{', message, reattach }
+
+const res = await anthropic.messages.create({
+  model: 'claude-sonnet-4-6',
+  max_tokens: 1024,
+  messages: [
+    { role: 'user', content: 'Return {title, score}' },
+    pf.message,                                    // primes Claude to continue from "{"
+  ],
+})
+
+const raw = pf.reattach((res.content[0] as { text: string }).text)
+const parsed = structOut.parseSafe(raw, MySchema)
+
+// Or the one-shot form:
+const parsed2 = structOut.parsePrefilledClaude(res.content[0].text, MySchema)
+```
+
 ---
 
 ### `context-trim` — Keep conversations alive without losing what matters
@@ -262,7 +304,19 @@ const trimmed = await contextTrim(messages, {
 - **Tool-call / tool-result pairs stay atomic.** If a trim would orphan a tool result, we expand the removal to include its parent assistant call. If a tool result has no matching call in the history (broken state), it's dropped first.
 - **Turn boundaries are never split.** An assistant reply is never separated from its user message.
 
-**Token counting accounts for per-message overhead** — OpenAI adds ~4 tokens per message for role wrapping; Anthropic and Gemini have their own constants. Most naive counters miss this and systematically underestimate by 3-10%.
+**Cache-breakpoint protection.** If you use Anthropic `cache_control` or rely on OpenAI/Gemini automatic prompt caching, trimming messages before the cache anchor invalidates the prefix and forces a full re-read (plus a cache-write premium on Anthropic). Pass the message IDs that anchor the cached prefix and `context-trim` will refuse to trim at or before them:
+
+```ts
+const trimmed = await contextTrim(messages, {
+  maxTokens: 100_000,
+  cacheBreakpoints: ['system-prompt-v3', 'user-turn-anchor'],  // these message IDs survive any trim
+})
+if (trimmed.overflow > 0) {
+  // Protected set exceeds budget — your cache strategy is the problem, not the budget.
+}
+```
+
+**Token counting** includes per-message overhead — OpenAI adds ~4 tokens per message for role wrapping, Anthropic and Gemini use their own constants. Counters that ignore this underestimate by ~3–10%.
 
 ```ts
 contextTrim.count(messages, 'gpt-5')      // total tokens incl. overhead
@@ -317,13 +371,11 @@ console.log(guard.summary())
 // }
 ```
 
-**What's new vs. naive token counters:**
+- **Reasoning tokens** are metered separately. GPT-5 `reasoning_effort: high` and Claude 4.6+ adaptive thinking can produce 5–10× the visible output; a session budget that ignores them will be off by that factor.
+- **Prompt caching.** Anthropic charges 1.25× for 5-minute cache writes and 0.1× for cache hits; OpenAI discounts cached input by ~50%. `record()` accepts `cacheHit` and `cacheWrite` so estimates match your bill.
+- **No session poisoning.** `record()` rejects NaN, Infinity, and negative values before mutating totals.
 
-- **Reasoning tokens are separately metered.** GPT-5 `reasoning_effort: high` and Claude 4.6+ adaptive thinking can be **5-10× the visible output**. A session budget without reasoning accounting is off by an order of magnitude.
-- **Prompt-cache economics.** Anthropic charges 1.25× for 5-minute cache writes and 0.1× for cache hits. OpenAI discounts cached input by ~50%. `record()` accepts `cacheHit` / `cacheWrite` so your estimates match your bill.
-- **No session poisoning.** `record()` throws on NaN/Infinity/negative inputs before mutating totals — one bad value can't silently disable budget enforcement.
-
-**Supported models (verified April 2026):**
+**Supported models (verified  2026):**
 
 | Family | Models |
 |---|---|
@@ -417,7 +469,7 @@ const key = await cacheKey({
 
 ### `stream-tools` — Accumulate streamed tool-call JSON across chunks
 
-OpenAI streams `tool_calls[].function.arguments` as JSON deltas; Anthropic streams `input_json_delta` events. Every team writes the same state machine. This one is ~120 lines, handles parallel calls, malformed JSON fallback, and exposes `.partial()` for UI "streaming tool call" indicators.
+OpenAI streams `tool_calls[].function.arguments` as JSON deltas; Anthropic streams `input_json_delta` events. The accumulator handles both, supports parallel calls, falls back to the raw string when JSON parsing fails, and exposes `.partial()` for in-flight progress.
 
 ```ts
 import { toolCallAccumulator } from '@the-arj/llmfort/stream-tools'
@@ -434,7 +486,7 @@ for (const call of acc.flush()) handleToolCall(call)  // always flush at end
 
 ## End-to-end example
 
-All four modules working together — scan the input, enforce budget, call the model, structure the output:
+Scan input, enforce a budget, call the model, structure the response, repair on failure:
 
 ```ts
 import { promptSafe, costGuard, structOut } from '@the-arj/llmfort'
@@ -451,10 +503,7 @@ const guard  = costGuard({ model: 'claude-sonnet-4-6', budget: { session: 1.00 }
 const claude = new Anthropic()
 
 async function reviewRequest(userMessage: string) {
-  // 1. Block injection / jailbreak / PII before it reaches Claude
   promptSafe.assert(userMessage)
-
-  // 2. Enforce cost budget before the API call
   await guard.check(userMessage)
 
   const call = (prompt: string) => claude.messages.create({
@@ -463,17 +512,15 @@ async function reviewRequest(userMessage: string) {
     messages: [{ role: 'user', content: prompt }],
   })
 
-  // 3. Call Claude
   const res = await call(userMessage)
   guard.record({ input: res.usage.input_tokens, output: res.usage.output_tokens })
 
-  // 4. Structure the output, repairing if the model returned malformed JSON.
   const result = await structOut({
     raw: (res.content[0] as { text: string }).text,
     schema: Review,
     repair: async ({ prompt }) => {
       const fix = await call(prompt)
-      guard.record(fix.usage.input_tokens, fix.usage.output_tokens)
+      guard.record({ input: fix.usage.input_tokens, output: fix.usage.output_tokens })
       return (fix.content[0] as { text: string }).text
     },
     maxRetries: 2,
@@ -483,7 +530,7 @@ async function reviewRequest(userMessage: string) {
 }
 ```
 
-Swap the SDK and model name — the four layers are identical for GPT-5, Gemini 3, DeepSeek, or any other provider.
+Swap the SDK and model name to target OpenAI or Gemini.
 
 ---
 
@@ -550,7 +597,7 @@ Sync helpers: `contextTrim.count`, `contextTrim.countMessage`, `contextTrim.dryR
 | `model` | `string` | Model ID (e.g. `'claude-opus-4-7'`, `'gpt-5'`) |
 | `budget.perCall` | `number` | Max USD per call |
 | `budget.session` | `number` | Max USD across the guard's lifetime |
-| `budget.reasoning` | `number` | Max USD of reasoning-token spend (the hidden killer on o-series and Claude thinking) |
+| `budget.reasoning` | `number` | Max USD spent on reasoning tokens (o-series, Claude thinking) |
 | `assumedOutputTokens` | `number` | Assumed output size for pre-call estimate (default `256`) |
 | `assumedReasoningTokens` | `number` | Assumed reasoning tokens for pre-call estimate (default `0`) |
 
@@ -607,14 +654,12 @@ Idempotent — passing an already-normalized error returns it unchanged.
 
 ---
 
-## What this package does NOT do
+## Out of scope
 
-Deliberate non-goals, to keep the bundle tiny and the scope clear:
-
-- **No exact tokenization** — we use a chars/token heuristic. For exact counts, use `tiktoken` or `gpt-tokenizer` and feed the count into `calcCost` directly.
-- **No network calls** — no telemetry, no remote blocklists, no cloud PII classifier. If you need ML-based detection, pair with `llm-guard` (Python) via HTTP.
-- **No streaming wrappers** — use the provider SDKs directly and call `record()` when usage arrives.
-- **No Zod schema input** — we take plain metadata. If you prefer Zod, use `zod-to-json-schema` and feed the result in as `params`.
+- **No exact tokenization.** A chars-per-token heuristic is used; for exact counts, plug in `tiktoken`, `@anthropic-ai/tokenizer`, or Gemini `countTokens` and call `calcCost` directly.
+- **No network calls.** No telemetry, no remote blocklists, no cloud PII classifier.
+- **No provider SDK wrapper.** Use OpenAI / Anthropic / Google SDKs directly; this package transforms inputs and outputs.
+- **No agent loops, RAG, vector stores, eval harness, prompt-template DSL, or browser-side streaming.**
 
 ---
 

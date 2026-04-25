@@ -1,0 +1,26 @@
+{
+  "name": "llmfort-example-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end example using every llmfort module against real Claude and OpenAI calls.",
+  "scripts": {
+    "start:claude": "tsx review-claude.ts",
+    "start:openai": "tsx review-openai.ts",
+    "stream:openai": "tsx stream-tools-openai.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "@the-arj/llmfort": "*",
+    "openai": "^5.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

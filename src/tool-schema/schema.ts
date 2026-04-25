@@ -20,8 +20,6 @@ export function buildParameterSchema(toolMeta: ToolMeta): ParameterSchema {
     if (meta.required !== false) required.push(name)
   }
 
-  // additionalProperties:false is required for OpenAI strict-mode function calling
-  // and Gemini responseSchema, and is recommended for Anthropic tool-use to prevent
-  // the model from hallucinating undocumented parameters.
+  // Required by OpenAI strict mode + Gemini responseSchema; recommended on Anthropic.
   return { type: 'object', properties, required, additionalProperties: false }
 }

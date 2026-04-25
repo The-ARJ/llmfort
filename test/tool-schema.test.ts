@@ -85,6 +85,99 @@ describe('toolSchemaAll', () => {
   })
 })
 
+describe('toolSchema.lint — provider-specific warnings', () => {
+  it('flags Anthropic silent-strip for pattern/minLength/format', () => {
+    const { byProvider } = toolSchema.lint({
+      description: 'x',
+      params: {
+        email: { type: 'string', pattern: '^.+@.+$', minLength: 5, maxLength: 100, format: 'email' } as any,
+      },
+    })
+    const keywords = byProvider.anthropic.map(w => w.keyword)
+    expect(keywords).toContain('pattern')
+    expect(keywords).toContain('minLength')
+    expect(keywords).toContain('format')
+  })
+
+  it('flags OpenAI strict-mode optional params', () => {
+    const { byProvider } = toolSchema.lint({
+      description: 'x',
+      params: {
+        a: { type: 'string' },
+        b: { type: 'string', required: false },
+      },
+    })
+    expect(byProvider.openai.some(w => w.message.includes('strict mode'))).toBe(true)
+  })
+
+  it('flags Gemini nesting > 5 levels deep', () => {
+    const { byProvider } = toolSchema.lint({
+      description: 'x',
+      params: {
+        a: {
+          type: 'object',
+          properties: {
+            b: { type: 'object', properties: {
+              c: { type: 'object', properties: {
+                d: { type: 'object', properties: {
+                  e: { type: 'object', properties: {
+                    f: { type: 'object', properties: {
+                      g: { type: 'string' },
+                    } },
+                  } },
+                } },
+              } },
+            } },
+          } },
+      } as any,
+    })
+    expect(byProvider.gemini.some(w => w.message.includes('depth'))).toBe(true)
+  })
+
+  it('flags empty tool description (Claude needs it)', () => {
+    const { byProvider } = toolSchema.lint({ description: '', params: {} })
+    expect(byProvider.anthropic.some(w => w.message.includes('description'))).toBe(true)
+  })
+
+  it('flags invalid tool name', () => {
+    const { byProvider } = toolSchema.lint({
+      name: '123 invalid name!',
+      description: 'x',
+      params: {},
+    })
+    expect(byProvider.openai.length).toBeGreaterThan(0)
+  })
+
+  it('flags `default` field (OpenAI strict rejects it)', () => {
+    const { byProvider } = toolSchema.lint({
+      description: 'x',
+      params: { a: { type: 'string', default: 'hi' } },
+    })
+    expect(byProvider.openai.some(w => w.keyword === 'default')).toBe(true)
+  })
+
+  it('clean schema produces no warnings', () => {
+    const { warnings } = toolSchema.lint({
+      name: 'get_weather',
+      description: 'Get weather for a city',
+      params: {
+        city: { type: 'string', description: 'The city' },
+      },
+    })
+    expect(warnings).toEqual([])
+  })
+
+  it('lintUnknown catches typos', () => {
+    const warnings = toolSchema.lintUnknown({
+      description: 'x',
+      params: {
+        a: { type: 'string', minLenght: 5 } as any,  // typo
+      },
+    })
+    expect(warnings.some(w => w.keyword === 'minLenght')).toBe(true)
+  })
+})
+
 describe('toolSchema — strict-mode compatibility', () => {
   it('emits additionalProperties:false on OpenAI output (required for strict mode)', () => {
     const schema = toolSchema(weatherMeta, 'openai')

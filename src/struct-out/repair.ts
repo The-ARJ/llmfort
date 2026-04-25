@@ -1,9 +1,3 @@
-/**
- * Repair prompt builder and retry loop.
- *
- * Every attempt produces a surgical error description — the model needs to
- * know *what* is wrong and *where*. Generic "please fix" never works.
- */
 import type { JsonSchemaValidator, ValidationIssue, Validator } from './types.js'
 
 export function buildRepairPrompt(
@@ -40,12 +34,7 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max) + '\n... (truncated)'
 }
 
-/**
- * Produce a compact, human-readable schema description for the repair prompt.
- * Best-effort: returns null if we can't confidently introspect the validator.
- */
 function summarizeSchema(schema: Validator<unknown>): string | null {
-  // Plain JSON Schema object → pretty-print as-is (compact).
   if (schema && typeof schema === 'object' && !isFunction((schema as any).safeParse)
       && !isFunction((schema as any).parse) && !isFunction((schema as any).validate)) {
     try {
@@ -53,13 +42,11 @@ function summarizeSchema(schema: Validator<unknown>): string | null {
     } catch { return null }
   }
 
-  // Zod v3/v4 — walk _def
   if ((schema as any)?._def) {
     const summary = summarizeZod((schema as any)._def)
     if (summary) return summary
   }
 
-  // Some validators expose toJsonSchema() — use it if present.
   if (isFunction((schema as any)?.toJsonSchema)) {
     try {
       return JSON.stringify((schema as any).toJsonSchema(), null, 2)
@@ -70,7 +57,6 @@ function summarizeSchema(schema: Validator<unknown>): string | null {
 }
 
 function stripSchema(s: JsonSchemaValidator): JsonSchemaValidator {
-  // Drop noisy meta fields so the prompt stays compact.
   const { $schema, $id, title, description, ...rest } = s as any
   if (rest.properties) {
     rest.properties = Object.fromEntries(
@@ -83,7 +69,6 @@ function stripSchema(s: JsonSchemaValidator): JsonSchemaValidator {
   return rest
 }
 
-// Very minimal Zod introspection — enough to give the model a usable hint.
 function summarizeZod(def: any, depth = 0): string | null {
   if (depth > 6) return '...'
   const t = def?.typeName

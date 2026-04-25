@@ -1,18 +1,3 @@
-/**
- * Stable cache-key builder for LLM requests.
- *
- * Why: prompt-caching hit rate depends on byte-stable prefixes. Teams break
- * their own cache by reordering tools, reshuffling JSON keys in `arguments`,
- * whitespace drift in system prompts, or injecting a timestamp into the first
- * user message. This module normalizes all of that into a single hash so
- * you can key a local cache or a Redis cache or a Vercel KV lookup by it.
- *
- * Zero-dep. Uses Node's built-in `crypto.createHash('sha256')` when available,
- * falls back to a pure-JS FNV-1a for browser/Edge runtimes that don't expose
- * Node crypto (rare but happens in Cloudflare Workers without nodejs_compat).
- */
-
-/** FNV-1a 64-bit — small, fast, not cryptographic. Used only as browser fallback. */
 function fnv1a(str: string): string {
   let h1 = 0xcbf29ce4, h2 = 0x84222325
   for (let i = 0; i < str.length; i++) {
@@ -27,14 +12,12 @@ function fnv1a(str: string): string {
 }
 
 async function sha256(input: string): Promise<string> {
-  // Node: crypto.createHash('sha256')
   try {
-    // @ts-ignore — runtime-only import
+    // @ts-ignore — node:crypto is conditional; no @types/node at runtime
     const { createHash } = await import('node:crypto')
     return createHash('sha256').update(input).digest('hex')
-  } catch { /* fall through */ }
+  } catch { /* no-op */ }
 
-  // Browser/Edge: SubtleCrypto
   const g: any = typeof globalThis !== 'undefined' ? globalThis : {}
   if (g.crypto?.subtle) {
     const buf = new TextEncoder().encode(input)
@@ -42,11 +25,9 @@ async function sha256(input: string): Promise<string> {
     return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
   }
 
-  // Last-resort: fnv1a (not cryptographic — good enough for a cache key).
   return 'fnv1a-' + fnv1a(input)
 }
 
-/** Recursive stable stringify: sorts object keys, preserves array order. */
 function stableStringify(v: unknown): string {
   if (v === null || typeof v !== 'object') return JSON.stringify(v)
   if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']'
@@ -54,14 +35,10 @@ function stableStringify(v: unknown): string {
   return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify((v as any)[k])).join(',') + '}'
 }
 
-/** Normalize whitespace that models tolerate but caches don't. */
 function normalizeText(s: string): string {
-  // Collapse runs of whitespace but NOT newlines — newlines carry semantic
-  // weight in system prompts / multi-example few-shot.
   return s.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').replace(/[ \t]+\n/g, '\n').trim()
 }
 
-/** Normalize a tool-call arguments string: if it's JSON, sort keys. */
 function normalizeToolArgs(args: string): string {
   try {
     return stableStringify(JSON.parse(args))
@@ -71,27 +48,16 @@ function normalizeToolArgs(args: string): string {
 }
 
 export interface CacheKeyInput {
-  /** Model ID — part of the key so we don't cross-pollute caches across models. */
   model: string
-  /**
-   * Ordered messages. Content blocks + tool_calls + tool_call_ids are
-   * normalized; ID-like fields (tool_call_id, name) are kept; `pinned` is
-   * stripped (it's llmfort bookkeeping, not part of the wire request).
-   */
   messages?: unknown[]
-  /** Raw system prompt, for providers that carry it separately (Anthropic). */
   system?: string
-  /** Tool definitions — order-sensitive on OpenAI/Anthropic; we sort them by name for stability. */
   tools?: Array<{ name?: string; function?: { name?: string }; [k: string]: unknown }>
-  /** Response format / JSON schema / structured-output spec. */
   response_format?: unknown
-  /** Any deterministic knobs you want in the key (temperature, top_p, max_tokens). */
   params?: Record<string, unknown>
-  /** Free-form namespace prefix — e.g. workspace ID, user ID, tenant. */
   namespace?: string
 }
 
-/** Build the canonical serialization without hashing — useful for debugging. */
+/** Canonical serialization without hashing. */
 export function canonical(input: CacheKeyInput): string {
   const messages = Array.isArray(input.messages) ? input.messages.map(normalizeMessage) : []
 
@@ -117,7 +83,6 @@ function normalizeMessage(m: any): unknown {
   if (!m || typeof m !== 'object') return m
   const out: any = {}
   out.role = m.role
-  // Content
   if (typeof m.content === 'string') out.content = normalizeText(m.content)
   else if (m.content === null) out.content = null
   else if (Array.isArray(m.content)) {
@@ -143,15 +108,12 @@ function normalizeMessage(m: any): unknown {
       },
     }))
   }
-  // `pinned` and `id` are llmfort bookkeeping — not part of the wire request.
   return stableOrderObj(out)
 }
 
 function normalizeTool(t: any): { name?: string; payload: unknown } & Record<string, unknown> {
   const name = t?.name ?? t?.function?.name
-  // Normalize the whole tool descriptor with stable key order.
-  const normalized = stableOrderObj(t)
-  return { name, payload: normalized }
+  return { name, payload: stableOrderObj(t) }
 }
 
 function stableOrderObj(obj: any): any {
@@ -162,15 +124,12 @@ function stableOrderObj(obj: any): any {
   return out
 }
 
-/** Hash the canonical serialization into a stable cache key. */
+/** SHA-256 hash of the canonical serialization. */
 export async function cacheKey(input: CacheKeyInput): Promise<string> {
   return sha256(canonical(input))
 }
 
-/**
- * Synchronous variant using FNV-1a. 16 hex chars, non-cryptographic.
- * Fine for cache-lookup keys; don't use where collision resistance matters.
- */
+/** Synchronous FNV-1a hash. 16 hex chars, non-cryptographic. */
 export function cacheKeySync(input: CacheKeyInput): string {
   return fnv1a(canonical(input))
 }
